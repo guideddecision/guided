@@ -23,6 +23,36 @@ function safeJsonParse(text: string) {
   }
 }
 
+function shuffleArray(items: any[]) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function shuffleAnswerOptions(parsed: any) {
+  if (!Array.isArray(parsed.questions)) return parsed;
+
+  parsed.questions = parsed.questions.map((question: any) => {
+    if (!Array.isArray(question.options) || question.options.length !== 4) return question;
+
+    const shuffledOptions = shuffleArray(question.options).map((option: any, index: number) => ({
+      ...option,
+      letter: ["A", "B", "C", "D"][index]
+    }));
+
+    return {
+      ...question,
+      options: shuffledOptions
+    };
+  });
+
+  return parsed;
+}
+
+
 const questionSchema = {
   type: "object",
   additionalProperties: false,
@@ -114,16 +144,22 @@ Rules:
 - Each question must compare Choice 1 and Choice 2 directly.
 - Avoid vague questions like "which feels better?"
 - Avoid therapy-sounding language.
-- Avoid repetitive answer wording.
-- The answer choices must be meaningful and specific to the trade-off in that question.
+- Avoid generic quiz wording.
+- Do not simply repeat the background.
+- Do not write answer choices that all follow the same template.
+- Do not use visible phrases like "strongly points", "slightly points", "strongly favors", "slightly favors", "score", "hidden score", or "trade-offs on this point" in the answer choice text.
+- The answer choices must be natural first-person statements the user could actually agree with.
+- Each answer choice should represent a different real attitude, priority, fear, sacrifice, or condition related to that specific question.
+- The answer choices should be specific enough that the user feels the AI understood the actual decision.
 - Every question must have exactly four options.
 - Each question must include one option scored -2, one scored -1, one scored 1, and one scored 2.
-- Randomize the order of scores across A, B, C, and D.
+- Randomize which score appears under A, B, C, and D.
+- Do not use the same score-letter pattern across questions.
 - Score meaning:
-  -2 strongly favors Choice 1
-  -1 slightly favors Choice 1
-   1 slightly favors Choice 2
-   2 strongly favors Choice 2
+  -2 means the answer strongly supports Choice 1
+  -1 means the answer somewhat supports Choice 1
+   1 means the answer somewhat supports Choice 2
+   2 means the answer strongly supports Choice 2
 Return only valid JSON matching the schema.
 `;
 
@@ -144,6 +180,12 @@ Number of questions to generate:
 ${questionCount}
 
 Make the questions constructive. They should test the real trade-offs in the user's background, not simply repeat the background.
+
+For every answer choice:
+- Make it concrete and specific to the user's situation.
+- Make A, B, C, and D meaningfully different from each other.
+- Do not label answers as strong/slight or choice 1/choice 2 in the visible text.
+- Avoid using the same sentence structure across all answers.
 `;
 
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -176,7 +218,7 @@ Make the questions constructive. They should test the real trade-offs in the use
 
     const data = await response.json();
     const outputText = getOutputText(data);
-    const parsed = safeJsonParse(outputText);
+    const parsed = shuffleAnswerOptions(safeJsonParse(outputText));
 
     if (!Array.isArray(parsed.questions) || parsed.questions.length !== Number(questionCount)) {
       return NextResponse.json({ error: "AI returned the wrong number of questions" }, { status: 500 });

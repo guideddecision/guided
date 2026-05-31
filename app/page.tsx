@@ -88,10 +88,10 @@ function fallbackQuestionText(theme: string, detail: string, choiceOne: string, 
 
 function fallbackOptions(choiceOne: string, choiceTwo: string, random: () => number) {
   return shuffle([
-    { score: -2, text: `This strongly points me toward ${choiceOne}; I would accept the trade-offs on this point.` },
-    { score: -1, text: `This slightly points me toward ${choiceOne}, but I still see some downside.` },
-    { score: 1, text: `This slightly points me toward ${choiceTwo}, but I still see some downside.` },
-    { score: 2, text: `This strongly points me toward ${choiceTwo}; I would accept the trade-offs on this point.` }
+    { score: -2, text: `For this issue, ${choiceOne} protects or creates something important enough that I would accept the cost.` },
+    { score: -1, text: `I would probably choose ${choiceOne} here, but only if I had a practical way to manage the downside.` },
+    { score: 1, text: `I would probably choose ${choiceTwo} here, but only if I had a practical way to manage the downside.` },
+    { score: 2, text: `For this issue, ${choiceTwo} protects or creates something important enough that I would accept the cost.` }
   ], random).map((option, index) => ({ ...option, letter: LETTERS[index] }));
 }
 
@@ -563,6 +563,13 @@ export default function GuidedDecisionAIApp() {
     setActiveIndex(0);
     setFinished(false);
     setQuestionCount(10);
+    setDecision("");
+    setChoiceOne("");
+    setChoiceTwo("");
+    setBackground("");
+    setRewriteDraft("");
+    setRewriteNotes([]);
+    setRewriteError("");
   }
 
   function getSourceLabel(source: string) {
@@ -1131,7 +1138,7 @@ export default function GuidedDecisionAIApp() {
             <div className="bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 p-7 text-white sm:p-10">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-bold text-cyan-100 shadow-lg backdrop-blur"><span>✦</span> Guided Decision AI App</div>
               <h1 className="mt-6 text-5xl font-black leading-[0.95] tracking-tight sm:text-6xl">Make a hard choice feel clearer.</h1>
-              <p className="mt-6 max-w-xl text-lg leading-relaxed text-slate-200">The app checks the AI API, can rewrite your background for clarity, then creates constructive questions around the real trade-offs in your decision.</p>
+              <p className="mt-6 max-w-xl text-lg leading-relaxed text-slate-200">The app checks the AI API, can rewrite your background for clarity, then creates constructive questions with varied answer choices around the real trade-offs in your decision.</p>
               <div className="mt-8 grid gap-3 sm:grid-cols-3">
                 {["AI status", "10 / 30 / 50", "Hidden scoring"].map((item) => (
                   <div key={item} className="rounded-2xl border border-white/10 bg-white/10 p-4 text-sm font-black text-white/90 backdrop-blur">{item}</div>
