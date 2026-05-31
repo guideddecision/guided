@@ -848,237 +848,299 @@ export default function GuidedDecisionAIApp() {
       const contentWidth = pageWidth - margin * 2;
       let y = margin;
 
+      const clean = (value: any) => String(value ?? "").replace(/\s+/g, " ").trim();
+      const fileSafe = (value: any) => clean(value).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 44) || "decision-report";
       const reportDate = new Date().toLocaleString();
-      const strongestSignals = session.questions
-        .map((question: any) => ({ question, answer: answers[question.id] }))
-        .filter((item: any) => item.answer)
-        .sort((a: any, b: any) => Math.abs(b.answer.score) - Math.abs(a.answer.score))
-        .slice(0, 8);
       const reportBreakdown = categoryBreakdown(session.questions, answers);
       const leanStrength = scoreData.maxAbs ? Math.round((Math.abs(scoreData.raw) / scoreData.maxAbs) * 100) : 0;
       const favoredChoice = scoreData.raw < 0 ? session.choiceOne : scoreData.raw > 0 ? session.choiceTwo : "Balanced";
       const reportInsights = getDecisionInsights(session, answers, scoreData);
       const reportQuality = session.backgroundQuality || assessBackgroundQuality(session.originalBackground || session.background, session.decision, session.choiceOne, session.choiceTwo);
+      const answeredQuestions = session.questions
+        .map((question: any) => ({ question, answer: answers[question.id] }))
+        .filter((item: any) => item.answer);
+      const strongestSignals = answeredQuestions
+        .sort((a: any, b: any) => Math.abs(b.answer.score) - Math.abs(a.answer.score))
+        .slice(0, 8);
 
-      const clean = (value: any) => String(value ?? "").replace(/\s+/g, " ").trim();
-      const fileSafe = (value: any) => clean(value).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 44) || "decision-report";
+      function setColor(color: [number, number, number]) {
+        doc.setTextColor(color[0], color[1], color[2]);
+      }
 
-      function ensureSpace(height = 40) {
-        if (y + height > pageHeight - margin) {
+      function addPageIfNeeded(requiredHeight = 40) {
+        if (y + requiredHeight > pageHeight - margin) {
           doc.addPage();
           y = margin;
         }
       }
 
-      function setText(color: [number, number, number]) {
-        doc.setTextColor(color[0], color[1], color[2]);
-      }
-
-      function writeWrapped(text: any, x: number, width: number, options: any = {}) {
+      function writeText(text: any, options: any = {}) {
+        const x = options.x || margin;
+        const width = options.width || contentWidth;
         const fontSize = options.fontSize || 10;
         const lineHeight = options.lineHeight || fontSize + 4;
-        const fontStyle = options.fontStyle || "normal";
+        const style = options.style || "normal";
         const color = options.color || [51, 65, 85];
-        const lines = doc.splitTextToSize(clean(text), width);
+        const before = options.before || 0;
+        const after = options.after || 0;
 
-        doc.setFont("helvetica", fontStyle);
+        y += before;
+        doc.setFont("helvetica", style);
         doc.setFontSize(fontSize);
-        setText(color);
+        setColor(color);
 
-        for (const line of lines) {
-          ensureSpace(lineHeight + 4);
-          doc.text(line, x, y);
-          y += lineHeight;
+        const paragraphs = String(text ?? "")
+          .replace(/\r/g, "")
+          .split("\n")
+          .map((item) => item.trim())
+          .filter(Boolean);
+
+        if (!paragraphs.length) {
+          return;
         }
+
+        paragraphs.forEach((paragraph, paragraphIndex) => {
+          const lines = doc.splitTextToSize(paragraph, width);
+          lines.forEach((line: string) => {
+            addPageIfNeeded(lineHeight + 2);
+            doc.text(line, x, y);
+            y += lineHeight;
+          });
+          if (paragraphIndex < paragraphs.length - 1) y += Math.max(4, lineHeight / 2);
+        });
+
+        y += after;
       }
 
       function sectionTitle(title: string) {
-        ensureSpace(40);
+        addPageIfNeeded(55);
         y += 12;
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(15);
-        setText([15, 23, 42]);
+        doc.setFontSize(16);
+        setColor([15, 23, 42]);
         doc.text(title, margin, y);
-        y += 10;
+        y += 9;
         doc.setDrawColor(226, 232, 240);
         doc.setLineWidth(1);
         doc.line(margin, y, pageWidth - margin, y);
         y += 18;
       }
 
-      function pill(text: string, x: number, yPos: number, fill: [number, number, number], color: [number, number, number]) {
-        doc.setFillColor(fill[0], fill[1], fill[2]);
-        doc.roundedRect(x, yPos - 14, doc.getTextWidth(text) + 18, 22, 10, 10, "F");
+      function subTitle(title: string) {
+        addPageIfNeeded(34);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        setColor([15, 23, 42]);
+        doc.text(title, margin, y);
+        y += 16;
+      }
+
+      function bulletList(items: any[], emptyText = "None recorded.") {
+        const list = items && items.length ? items : [emptyText];
+        list.forEach((item) => {
+          const textLines = doc.splitTextToSize(clean(item), contentWidth - 18);
+          addPageIfNeeded(textLines.length * 13 + 10);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+          setColor([51, 65, 85]);
+          doc.text("•", margin, y);
+          doc.text(textLines, margin + 14, y);
+          y += textLines.length * 13 + 6;
+        });
+      }
+
+      function keyValue(label: string, value: any) {
+        addPageIfNeeded(34);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
-        setText(color);
-        doc.text(text, x + 9, yPos);
+        setColor([100, 116, 139]);
+        doc.text(label.toUpperCase(), margin, y);
+        y += 13;
+        writeText(value, { fontSize: 10, lineHeight: 14, color: [30, 41, 59], after: 6 });
       }
 
-      function summaryCard(label: string, value: string, x: number, yPos: number, width: number) {
-        doc.setFillColor(248, 250, 252);
-        doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(x, yPos, width, 68, 14, 14, "FD");
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(8);
-        setText([100, 116, 139]);
-        doc.text(label.toUpperCase(), x + 14, yPos + 22);
-        doc.setFontSize(13);
-        setText([15, 23, 42]);
-        const valueLines = doc.splitTextToSize(clean(value), width - 28);
-        doc.text(valueLines.slice(0, 2), x + 14, yPos + 43);
-      }
-
-      function card(title: string, body: string, accent: "cyan" | "fuchsia" | "slate" = "slate") {
-        const startY = y;
-        const lines = doc.splitTextToSize(clean(body), contentWidth - 30);
-        const height = Math.max(70, 42 + lines.length * 14);
-        ensureSpace(height + 12);
-
+      function callout(title: string, body: any, accent: "cyan" | "fuchsia" | "slate" = "slate") {
         const fill = accent === "cyan" ? [236, 254, 255] : accent === "fuchsia" ? [253, 244, 255] : [248, 250, 252];
         const stroke = accent === "cyan" ? [165, 243, 252] : accent === "fuchsia" ? [245, 208, 254] : [226, 232, 240];
+
+        const titleLines = doc.splitTextToSize(clean(title), contentWidth - 28);
+        const bodyLines = doc.splitTextToSize(clean(body), contentWidth - 28);
+        const height = Math.max(72, 18 + titleLines.length * 14 + bodyLines.length * 13 + 22);
+
+        if (height > pageHeight - margin * 2) {
+          subTitle(title);
+          writeText(body, { fontSize: 10, lineHeight: 14, after: 8 });
+          return;
+        }
+
+        addPageIfNeeded(height + 10);
         doc.setFillColor(fill[0], fill[1], fill[2]);
         doc.setDrawColor(stroke[0], stroke[1], stroke[2]);
         doc.roundedRect(margin, y, contentWidth, height, 14, 14, "FD");
 
         doc.setFont("helvetica", "bold");
         doc.setFontSize(11);
-        setText([15, 23, 42]);
-        doc.text(clean(title), margin + 15, y + 23);
+        setColor([15, 23, 42]);
+        doc.text(titleLines, margin + 14, y + 22);
 
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
-        setText([71, 85, 105]);
-        doc.text(lines, margin + 15, y + 42);
-        y = startY + height + 10;
+        setColor([51, 65, 85]);
+        doc.text(bodyLines, margin + 14, y + 22 + titleLines.length * 15 + 8);
+
+        y += height + 10;
       }
 
-      function tableRow(columns: string[], widths: number[], isHeader = false) {
-        const lineArrays = columns.map((col, i) => doc.splitTextToSize(clean(col), widths[i] - 14));
-        const rowHeight = Math.max(30, ...lineArrays.map((lines) => lines.length * 12 + 16));
-        ensureSpace(rowHeight + 8);
+      function compactTableRow(columns: string[], widths: number[], header = false) {
+        const lineArrays = columns.map((col, index) => doc.splitTextToSize(clean(col), widths[index] - 12));
+        const rowHeight = Math.max(28, ...lineArrays.map((lines) => lines.length * 11 + 14));
+        addPageIfNeeded(rowHeight + 2);
 
         let x = margin;
-        for (let i = 0; i < columns.length; i += 1) {
-          if (isHeader) {
+        columns.forEach((_, index) => {
+          if (header) {
             doc.setFillColor(15, 23, 42);
             doc.setDrawColor(15, 23, 42);
           } else {
             doc.setFillColor(255, 255, 255);
             doc.setDrawColor(226, 232, 240);
           }
-          doc.rect(x, y, widths[i], rowHeight, "FD");
-          doc.setFont("helvetica", isHeader ? "bold" : "normal");
-          doc.setFontSize(isHeader ? 8 : 9);
-          setText(isHeader ? [255, 255, 255] : [51, 65, 85]);
-          doc.text(lineArrays[i], x + 7, y + 16);
-          x += widths[i];
-        }
+
+          doc.rect(x, y, widths[index], rowHeight, "FD");
+          doc.setFont("helvetica", header ? "bold" : "normal");
+          doc.setFontSize(header ? 8 : 8.5);
+          setColor(header ? [255, 255, 255] : [51, 65, 85]);
+          doc.text(lineArrays[index], x + 6, y + 13);
+          x += widths[index];
+        });
+
         y += rowHeight;
       }
 
-      // Header
+      // Cover / header
       doc.setFillColor(2, 6, 23);
-      doc.roundedRect(margin, y, contentWidth, 118, 20, 20, "F");
+      doc.roundedRect(margin, y, contentWidth, 136, 20, 20, "F");
+
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
-      setText([165, 243, 252]);
+      setColor([165, 243, 252]);
       doc.text("GUIDED DECISION REPORT", margin + 24, y + 30);
-      doc.setFontSize(23);
-      setText([255, 255, 255]);
-      const titleLines = doc.splitTextToSize(clean(scoreData.recommendation.label), contentWidth - 48);
-      doc.text(titleLines.slice(0, 2), margin + 24, y + 58);
-      y += 90;
+
+      doc.setFontSize(22);
+      setColor([255, 255, 255]);
+      doc.text(doc.splitTextToSize(clean(scoreData.recommendation.label), contentWidth - 48).slice(0, 2), margin + 24, y + 60);
+
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
-      setText([226, 232, 240]);
-      const explanationLines = doc.splitTextToSize(clean(scoreData.recommendation.explanation), contentWidth - 48);
-      doc.text(explanationLines.slice(0, 2), margin + 24, y);
-      y = margin + 140;
+      setColor([226, 232, 240]);
+      doc.text(doc.splitTextToSize(clean(scoreData.recommendation.explanation), contentWidth - 48).slice(0, 3), margin + 24, y + 100);
 
-      // Summary cards
-      const gap = 10;
-      const cardWidth = (contentWidth - gap * 2) / 3;
-      summaryCard("Date", reportDate, margin, y, cardWidth);
-      summaryCard("Mode", getSourceLabel(session.source), margin + cardWidth + gap, y, cardWidth);
-      summaryCard("Answered", `${Object.keys(answers).length}/${session.questions.length}`, margin + (cardWidth + gap) * 2, y, cardWidth);
-      y += 92;
+      y += 166;
 
-      sectionTitle("Decision summary");
-      writeWrapped(`Life question: ${session.decision}`, margin, contentWidth, { fontSize: 11, fontStyle: "bold", color: [30, 41, 59] });
-      y += 8;
-      const choiceY = y;
-      const choiceW = (contentWidth - gap) / 2;
-      doc.setFillColor(236, 254, 255);
-      doc.setDrawColor(165, 243, 252);
-      doc.roundedRect(margin, choiceY, choiceW, 64, 14, 14, "FD");
-      doc.setFillColor(253, 244, 255);
-      doc.setDrawColor(245, 208, 254);
-      doc.roundedRect(margin + choiceW + gap, choiceY, choiceW, 64, 14, 14, "FD");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      setText([14, 116, 144]);
-      doc.text("CHOICE 1", margin + 14, choiceY + 20);
-      setText([162, 28, 175]);
-      doc.text("CHOICE 2", margin + choiceW + gap + 14, choiceY + 20);
-      doc.setFontSize(12);
-      setText([15, 23, 42]);
-      doc.text(doc.splitTextToSize(clean(session.choiceOne), choiceW - 28), margin + 14, choiceY + 42);
-      doc.text(doc.splitTextToSize(clean(session.choiceTwo), choiceW - 28), margin + choiceW + gap + 14, choiceY + 42);
-      y += 82;
+      sectionTitle("1. Executive summary");
+      keyValue("Life question", session.decision);
+      keyValue("Choice 1", session.choiceOne);
+      keyValue("Choice 2", session.choiceTwo);
+      keyValue("Report date", reportDate);
+      keyValue("Question mode", getSourceLabel(session.source));
+      keyValue("Questions answered", `${Object.keys(answers).length}/${session.questions.length}`);
 
-      sectionTitle("Decision lean");
-      card(scoreData.leanSummary.label, `${scoreData.leanSummary.note} Direction marker: ${scoreData.score}/100. Lean strength: ${leanStrength}% toward ${favoredChoice}. Raw weighted tally: ${scoreData.raw}.`, "slate");
+      callout(
+        "Decision lean",
+        `${scoreData.leanSummary.label}. ${scoreData.leanSummary.note}\nDirection marker: ${scoreData.score}/100.\nLean strength: ${leanStrength}% toward ${favoredChoice}.\nRaw weighted tally: ${scoreData.raw}.`,
+        "slate"
+      );
 
-      sectionTitle("Why the result leaned this way");
-      card(`Top reasons toward ${session.choiceOne}`, reportInsights.topReasonsOne.length ? reportInsights.topReasonsOne.join("\n") : "No strong signal recorded.", "cyan");
-      card(`Top reasons toward ${session.choiceTwo}`, reportInsights.topReasonsTwo.length ? reportInsights.topReasonsTwo.join("\n") : "No strong signal recorded.", "fuchsia");
-      card("Biggest unresolved conflict", reportInsights.unresolvedConflict, "slate");
-      card("Suggested next step", reportInsights.suggestedNextStep, "slate");
+      sectionTitle("2. Why the result leaned this way");
+      callout(`Top reasons toward ${session.choiceOne}`, reportInsights.topReasonsOne.length ? reportInsights.topReasonsOne.join("\n") : "No strong signal recorded.", "cyan");
+      callout(`Top reasons toward ${session.choiceTwo}`, reportInsights.topReasonsTwo.length ? reportInsights.topReasonsTwo.join("\n") : "No strong signal recorded.", "fuchsia");
+      callout("Biggest unresolved conflict", reportInsights.unresolvedConflict, "slate");
+      callout("Suggested next step", reportInsights.suggestedNextStep, "slate");
 
-      sectionTitle("Background quality and follow-up context");
-      card("Background quality", `${reportQuality.level} (${reportQuality.score}/100). ${reportQuality.suggestions?.length ? `Missing or thin areas: ${reportQuality.suggestions.join(", ")}.` : "The background included enough useful detail for a strong analysis."}`, "slate");
-      if (session.followUpAnswers?.length) {
-        session.followUpAnswers.forEach((item: any, index: number) => {
-          card(`Follow-up ${index + 1}`, `${item.question}\n${item.answer}`, index % 2 === 0 ? "cyan" : "fuchsia");
-        });
+      sectionTitle("3. Background quality and follow-up context");
+      keyValue("Background quality", `${reportQuality.level} (${reportQuality.score}/100)`);
+      if (reportQuality.strengths?.length) {
+        subTitle("Useful background included");
+        bulletList(reportQuality.strengths);
+      }
+      if (reportQuality.suggestions?.length) {
+        subTitle("Missing or thin areas");
+        bulletList(reportQuality.suggestions);
       }
 
-      sectionTitle("Decision tensions");
+      if (session.followUpAnswers?.length) {
+        subTitle("Follow-up answers used");
+        session.followUpAnswers.forEach((item: any, index: number) => {
+          callout(`Follow-up ${index + 1}`, `${item.question}\n${item.answer}`, index % 2 === 0 ? "cyan" : "fuchsia");
+        });
+      } else {
+        writeText("No follow-up answers were added before the quiz.", { color: [100, 116, 139], after: 8 });
+      }
+
+      sectionTitle("4. Decision tensions");
       if (session.decisionTensions?.length) {
         session.decisionTensions.forEach((tension: any, index: number) => {
-          card(`${index + 1}. ${tension.title}`, tension.explanation, index % 2 === 0 ? "cyan" : "fuchsia");
+          callout(`${index + 1}. ${tension.title}`, tension.explanation, index % 2 === 0 ? "cyan" : "fuchsia");
         });
       } else {
-        writeWrapped("No decision tensions were recorded.", margin, contentWidth, { color: [100, 116, 139] });
+        writeText("No decision tensions were recorded.", { color: [100, 116, 139] });
       }
 
-      sectionTitle("Strongest answer signals");
+      sectionTitle("5. Strongest answer signals");
       if (strongestSignals.length) {
         strongestSignals.forEach(({ question, answer }: any, index: number) => {
-          card(`Signal ${index + 1} - ${question.theme}`, `${question.prompt}\nSelected ${answer.letter}: ${answer.text}\nHidden score: ${answer.score}`, "slate");
+          callout(
+            `Signal ${index + 1}: ${question.theme}`,
+            `${question.prompt}\nSelected ${answer.letter}: ${answer.text}\nHidden score: ${answer.score}`,
+            "slate"
+          );
         });
       } else {
-        writeWrapped("No strongest signals were recorded.", margin, contentWidth, { color: [100, 116, 139] });
+        writeText("No strongest signals were recorded.", { color: [100, 116, 139] });
       }
 
-      sectionTitle("Category / area breakdown");
-      const widths = [115, 90, 115, contentWidth - 320];
-      tableRow(["Area", "Signal", "Leans toward", "Meaning"], widths, true);
-      reportBreakdown.forEach((item: any) => {
-        const insight = categoryMeaning(item, session.choiceOne, session.choiceTwo);
-        tableRow([item.theme, insight.strength, insight.favoredChoice, insight.explanation], widths, false);
-      });
+      sectionTitle("6. Category breakdown");
+      if (reportBreakdown.length) {
+        const widths = [112, 80, 112, contentWidth - 304];
+        compactTableRow(["Area", "Signal", "Leans toward", "Meaning"], widths, true);
+        reportBreakdown.forEach((item: any) => {
+          const insight = categoryMeaning(item, session.choiceOne, session.choiceTwo);
+          compactTableRow([item.theme, insight.strength, insight.favoredChoice, insight.explanation], widths, false);
+        });
+      } else {
+        writeText("No category breakdown was recorded.", { color: [100, 116, 139] });
+      }
 
-      sectionTitle("Background used");
-      writeWrapped(session.background, margin, contentWidth, { fontSize: 10, lineHeight: 14, color: [51, 65, 85] });
+      sectionTitle("7. Full answer log");
+      if (answeredQuestions.length) {
+        answeredQuestions.forEach(({ question, answer }: any) => {
+          subTitle(`Question ${question.id}: ${question.theme}`);
+          writeText(question.prompt, { fontSize: 9.5, lineHeight: 13, color: [30, 41, 59], after: 3 });
+          writeText(`Selected ${answer.letter}: ${answer.text}`, { fontSize: 9.5, lineHeight: 13, color: [71, 85, 105], after: 3 });
+          writeText(`Hidden score: ${answer.score}`, { fontSize: 8.5, lineHeight: 11, color: [100, 116, 139], after: 7 });
+        });
+      } else {
+        writeText("No answer log was recorded.", { color: [100, 116, 139] });
+      }
 
-      y += 18;
-      ensureSpace(40);
-      doc.setDrawColor(226, 232, 240);
-      doc.line(margin, y, pageWidth - margin, y);
-      y += 16;
-      writeWrapped("This report is a structured reflection tool, not a guarantee of the correct life choice. Use it to understand your weighting and revisit any non-negotiable facts before making a final decision.", margin, contentWidth, { fontSize: 8, lineHeight: 11, color: [100, 116, 139] });
+      sectionTitle("8. Background used");
+      writeText(session.background, { fontSize: 10, lineHeight: 14, color: [51, 65, 85] });
+
+      sectionTitle("Important note");
+      writeText(
+        "This report is a structured reflection tool, not a guarantee of the correct life choice. Use it to understand your weighting, revisit non-negotiable facts, and sanity-check the result before making a final decision.",
+        { fontSize: 9, lineHeight: 12, color: [100, 116, 139] }
+      );
+
+      const pageCount = doc.getNumberOfPages();
+      for (let page = 1; page <= pageCount; page += 1) {
+        doc.setPage(page);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        setColor([148, 163, 184]);
+        doc.text(`Guided Decision Report · Page ${page} of ${pageCount}`, margin, pageHeight - 22);
+        doc.text(reportDate, pageWidth - margin, pageHeight - 22, { align: "right" });
+      }
 
       doc.save(`${fileSafe(session.decision)}.pdf`);
     } catch (error) {
