@@ -578,370 +578,242 @@ export default function GuidedDecisionAIApp() {
     return "Fallback questions used";
   }
 
-  function downloadConclusionReport() {
+  async function downloadConclusionReport() {
     if (!session || !scoreData) return;
 
-    const escapeHtml = (value: any) => String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+    try {
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
 
-    const strongestSignals = session.questions
-      .map((question: any) => ({ question, answer: answers[question.id] }))
-      .filter((item: any) => item.answer)
-      .sort((a: any, b: any) => Math.abs(b.answer.score) - Math.abs(a.answer.score))
-      .slice(0, 8);
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 44;
+      const contentWidth = pageWidth - margin * 2;
+      let y = margin;
 
-    const reportBreakdown = categoryBreakdown(session.questions, answers);
-    const leanStrength = scoreData.maxAbs ? Math.round((Math.abs(scoreData.raw) / scoreData.maxAbs) * 100) : 0;
-    const favoredChoice = scoreData.raw < 0 ? session.choiceOne : scoreData.raw > 0 ? session.choiceTwo : "Balanced";
-    const reportDate = new Date().toLocaleString();
+      const reportDate = new Date().toLocaleString();
+      const strongestSignals = session.questions
+        .map((question: any) => ({ question, answer: answers[question.id] }))
+        .filter((item: any) => item.answer)
+        .sort((a: any, b: any) => Math.abs(b.answer.score) - Math.abs(a.answer.score))
+        .slice(0, 8);
+      const reportBreakdown = categoryBreakdown(session.questions, answers);
+      const leanStrength = scoreData.maxAbs ? Math.round((Math.abs(scoreData.raw) / scoreData.maxAbs) * 100) : 0;
+      const favoredChoice = scoreData.raw < 0 ? session.choiceOne : scoreData.raw > 0 ? session.choiceTwo : "Balanced";
 
-    const tensionsHtml = (session.decisionTensions || []).map((tension: any, index: number) => `
-      <div class="card small-card">
-        <div class="number">${index + 1}</div>
-        <div>
-          <h3>${escapeHtml(tension.title)}</h3>
-          <p>${escapeHtml(tension.explanation)}</p>
-        </div>
-      </div>
-    `).join("") || `<p class="muted">No decision tensions were recorded.</p>`;
+      const clean = (value: any) => String(value ?? "").replace(/\s+/g, " ").trim();
+      const fileSafe = (value: any) => clean(value).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 44) || "decision-report";
 
-    const signalsHtml = strongestSignals.map(({ question, answer }: any, index: number) => `
-      <div class="signal">
-        <div class="signal-head">Signal ${index + 1} - ${escapeHtml(question.theme)}</div>
-        <p class="question">${escapeHtml(question.prompt)}</p>
-        <p><strong>Selected ${escapeHtml(answer.letter)}:</strong> ${escapeHtml(answer.text)}</p>
-        <p class="muted">Hidden score: ${escapeHtml(answer.score)}</p>
-      </div>
-    `).join("") || `<p class="muted">No strongest signals were recorded.</p>`;
-
-    const breakdownRows = reportBreakdown.map((item: any) => {
-      const insight = categoryMeaning(item, session.choiceOne, session.choiceTwo);
-      return `
-        <tr>
-          <td>${escapeHtml(item.theme)}</td>
-          <td>${escapeHtml(insight.strength)}</td>
-          <td>${escapeHtml(insight.favoredChoice)}</td>
-          <td>${escapeHtml(insight.explanation)}</td>
-        </tr>
-      `;
-    }).join("");
-
-    const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Guided Decision Report</title>
-  <style>
-    @page { size: A4; margin: 15mm; }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: #f8fafc;
-      color: #0f172a;
-      font-family: Arial, Helvetica, sans-serif;
-      font-size: 12px;
-      line-height: 1.45;
-    }
-    .page {
-      max-width: 920px;
-      margin: 0 auto;
-      background: white;
-      padding: 34px;
-    }
-    .header {
-      border-radius: 22px;
-      background: linear-gradient(135deg, #020617, #312e81, #701a75);
-      color: white;
-      padding: 28px;
-      margin-bottom: 22px;
-    }
-    .eyebrow {
-      margin: 0 0 8px;
-      color: #a5f3fc;
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-    }
-    h1 {
-      margin: 0;
-      font-size: 30px;
-      line-height: 1.05;
-      letter-spacing: -0.03em;
-    }
-    h2 {
-      margin: 24px 0 10px;
-      padding-bottom: 7px;
-      border-bottom: 2px solid #e2e8f0;
-      font-size: 18px;
-      letter-spacing: -0.01em;
-    }
-    h3 {
-      margin: 0 0 4px;
-      font-size: 13px;
-    }
-    p { margin: 0 0 8px; }
-    .muted { color: #64748b; }
-    .summary-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-      margin: 16px 0 20px;
-    }
-    .summary-card, .card, .signal {
-      border: 1px solid #e2e8f0;
-      border-radius: 16px;
-      background: #ffffff;
-      padding: 14px;
-    }
-    .summary-label {
-      color: #64748b;
-      font-size: 9px;
-      font-weight: 800;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-    }
-    .summary-value {
-      margin-top: 5px;
-      font-size: 17px;
-      font-weight: 800;
-    }
-    .choice-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-    .choice {
-      border-radius: 16px;
-      padding: 14px;
-      border: 1px solid #e2e8f0;
-      background: #f8fafc;
-    }
-    .choice.left { border-color: #a5f3fc; background: #ecfeff; }
-    .choice.right { border-color: #f5d0fe; background: #fdf4ff; }
-    .bar-wrap {
-      margin: 12px 0 8px;
-      border-radius: 999px;
-      background: #e2e8f0;
-      height: 14px;
-      overflow: hidden;
-      position: relative;
-    }
-    .bar-fill {
-      height: 14px;
-      background: linear-gradient(90deg, #67e8f9, #60a5fa, #f0abfc);
-      width: ${scoreData.score}%;
-    }
-    .small-card {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 10px;
-      page-break-inside: avoid;
-    }
-    .number {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      flex: 0 0 auto;
-      width: 26px;
-      height: 26px;
-      border-radius: 10px;
-      background: #0f172a;
-      color: white;
-      font-weight: 800;
-      font-size: 11px;
-    }
-    .signal {
-      margin-bottom: 12px;
-      page-break-inside: avoid;
-    }
-    .signal-head {
-      color: #0e7490;
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      margin-bottom: 6px;
-    }
-    .question {
-      font-weight: 700;
-      color: #1e293b;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 8px;
-      page-break-inside: auto;
-    }
-    th, td {
-      border: 1px solid #e2e8f0;
-      padding: 8px;
-      text-align: left;
-      vertical-align: top;
-      font-size: 11px;
-    }
-    th {
-      background: #0f172a;
-      color: white;
-      font-size: 9px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .background-box {
-      white-space: pre-wrap;
-      border: 1px solid #e2e8f0;
-      border-radius: 16px;
-      background: #f8fafc;
-      padding: 14px;
-    }
-    .footer {
-      margin-top: 24px;
-      padding-top: 12px;
-      border-top: 1px solid #e2e8f0;
-      color: #64748b;
-      font-size: 10px;
-    }
-    .actions {
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      padding: 12px;
-      background: rgba(248,250,252,0.92);
-      backdrop-filter: blur(8px);
-      border-bottom: 1px solid #e2e8f0;
-    }
-    button {
-      border: 0;
-      border-radius: 12px;
-      padding: 10px 14px;
-      background: #0f172a;
-      color: white;
-      font-weight: 800;
-      cursor: pointer;
-    }
-    .secondary {
-      background: white;
-      color: #0f172a;
-      border: 1px solid #cbd5e1;
-    }
-    @media print {
-      body { background: white; }
-      .page { max-width: none; padding: 0; }
-      .actions { display: none; }
-      .header { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-      .bar-fill { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-      h2 { page-break-after: avoid; }
-      .summary-card, .card, .signal, .choice { page-break-inside: avoid; }
-    }
-  </style>
-</head>
-<body>
-  <div class="actions">
-    <button class="secondary" onclick="history.back()">Back</button>
-    <button onclick="window.print()">Save as PDF / Print</button>
-  </div>
-  <main class="page">
-    <section class="header">
-      <p class="eyebrow">Guided Decision Report</p>
-      <h1>${escapeHtml(scoreData.recommendation.label)}</h1>
-      <p style="margin-top:12px;color:#e2e8f0;">${escapeHtml(scoreData.recommendation.explanation)}</p>
-    </section>
-
-    <section class="summary-grid">
-      <div class="summary-card">
-        <div class="summary-label">Date</div>
-        <div class="summary-value" style="font-size:13px;">${escapeHtml(reportDate)}</div>
-      </div>
-      <div class="summary-card">
-        <div class="summary-label">Question mode</div>
-        <div class="summary-value" style="font-size:13px;">${escapeHtml(getSourceLabel(session.source))}</div>
-      </div>
-      <div class="summary-card">
-        <div class="summary-label">Answered</div>
-        <div class="summary-value">${Object.keys(answers).length}/${session.questions.length}</div>
-      </div>
-    </section>
-
-    <h2>Decision summary</h2>
-    <p><strong>Life question:</strong> ${escapeHtml(session.decision)}</p>
-    <div class="choice-grid">
-      <div class="choice left"><div class="summary-label">Choice 1</div><p><strong>${escapeHtml(session.choiceOne)}</strong></p></div>
-      <div class="choice right"><div class="summary-label">Choice 2</div><p><strong>${escapeHtml(session.choiceTwo)}</strong></p></div>
-    </div>
-
-    <h2>Decision lean</h2>
-    <div class="card">
-      <p><strong>${escapeHtml(scoreData.leanSummary.label)}:</strong> ${escapeHtml(scoreData.leanSummary.note)}</p>
-      <div class="bar-wrap"><div class="bar-fill"></div></div>
-      <p class="muted">Direction marker: ${scoreData.score}/100. Lean strength: ${leanStrength}% toward ${escapeHtml(favoredChoice)}. Raw weighted tally: ${scoreData.raw}.</p>
-    </div>
-
-    <h2>Decision tensions</h2>
-    ${tensionsHtml}
-
-    <h2>Strongest answer signals</h2>
-    ${signalsHtml}
-
-    <h2>Category / area breakdown</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Area</th>
-          <th>Signal</th>
-          <th>Leans toward</th>
-          <th>Meaning</th>
-        </tr>
-      </thead>
-      <tbody>${breakdownRows}</tbody>
-    </table>
-
-    <h2>Background used</h2>
-    <div class="background-box">${escapeHtml(session.background)}</div>
-
-    <div class="footer">
-      This report is a structured reflection tool, not a guarantee of the correct life choice. Use it to understand your weighting and revisit any non-negotiable facts before making a final decision.
-    </div>
-  </main>
-</body>
-</html>`;
-
-    const existingFrame = document.getElementById("guided-decision-print-frame");
-    if (existingFrame) existingFrame.remove();
-
-    const iframe = document.createElement("iframe");
-    iframe.id = "guided-decision-print-frame";
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "1px";
-    iframe.style.height = "1px";
-    iframe.style.opacity = "0";
-    iframe.style.pointerEvents = "none";
-    iframe.style.border = "0";
-    iframe.setAttribute("aria-hidden", "true");
-
-    document.body.appendChild(iframe);
-
-    iframe.onload = () => {
-      setTimeout(() => {
-        try {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-        } catch {
-          alert("The PDF report could not open. Try using your browser menu: Print > Save as PDF.");
+      function ensureSpace(height = 40) {
+        if (y + height > pageHeight - margin) {
+          doc.addPage();
+          y = margin;
         }
-      }, 350);
-    };
+      }
 
-    iframe.srcdoc = html;
+      function setText(color: [number, number, number]) {
+        doc.setTextColor(color[0], color[1], color[2]);
+      }
+
+      function writeWrapped(text: any, x: number, width: number, options: any = {}) {
+        const fontSize = options.fontSize || 10;
+        const lineHeight = options.lineHeight || fontSize + 4;
+        const fontStyle = options.fontStyle || "normal";
+        const color = options.color || [51, 65, 85];
+        const lines = doc.splitTextToSize(clean(text), width);
+
+        doc.setFont("helvetica", fontStyle);
+        doc.setFontSize(fontSize);
+        setText(color);
+
+        for (const line of lines) {
+          ensureSpace(lineHeight + 4);
+          doc.text(line, x, y);
+          y += lineHeight;
+        }
+      }
+
+      function sectionTitle(title: string) {
+        ensureSpace(40);
+        y += 12;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(15);
+        setText([15, 23, 42]);
+        doc.text(title, margin, y);
+        y += 10;
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(1);
+        doc.line(margin, y, pageWidth - margin, y);
+        y += 18;
+      }
+
+      function pill(text: string, x: number, yPos: number, fill: [number, number, number], color: [number, number, number]) {
+        doc.setFillColor(fill[0], fill[1], fill[2]);
+        doc.roundedRect(x, yPos - 14, doc.getTextWidth(text) + 18, 22, 10, 10, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        setText(color);
+        doc.text(text, x + 9, yPos);
+      }
+
+      function summaryCard(label: string, value: string, x: number, yPos: number, width: number) {
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(x, yPos, width, 68, 14, 14, "FD");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        setText([100, 116, 139]);
+        doc.text(label.toUpperCase(), x + 14, yPos + 22);
+        doc.setFontSize(13);
+        setText([15, 23, 42]);
+        const valueLines = doc.splitTextToSize(clean(value), width - 28);
+        doc.text(valueLines.slice(0, 2), x + 14, yPos + 43);
+      }
+
+      function card(title: string, body: string, accent: "cyan" | "fuchsia" | "slate" = "slate") {
+        const startY = y;
+        const lines = doc.splitTextToSize(clean(body), contentWidth - 30);
+        const height = Math.max(70, 42 + lines.length * 14);
+        ensureSpace(height + 12);
+
+        const fill = accent === "cyan" ? [236, 254, 255] : accent === "fuchsia" ? [253, 244, 255] : [248, 250, 252];
+        const stroke = accent === "cyan" ? [165, 243, 252] : accent === "fuchsia" ? [245, 208, 254] : [226, 232, 240];
+        doc.setFillColor(fill[0], fill[1], fill[2]);
+        doc.setDrawColor(stroke[0], stroke[1], stroke[2]);
+        doc.roundedRect(margin, y, contentWidth, height, 14, 14, "FD");
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        setText([15, 23, 42]);
+        doc.text(clean(title), margin + 15, y + 23);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        setText([71, 85, 105]);
+        doc.text(lines, margin + 15, y + 42);
+        y = startY + height + 10;
+      }
+
+      function tableRow(columns: string[], widths: number[], isHeader = false) {
+        const lineArrays = columns.map((col, i) => doc.splitTextToSize(clean(col), widths[i] - 14));
+        const rowHeight = Math.max(30, ...lineArrays.map((lines) => lines.length * 12 + 16));
+        ensureSpace(rowHeight + 8);
+
+        let x = margin;
+        for (let i = 0; i < columns.length; i += 1) {
+          if (isHeader) {
+            doc.setFillColor(15, 23, 42);
+            doc.setDrawColor(15, 23, 42);
+          } else {
+            doc.setFillColor(255, 255, 255);
+            doc.setDrawColor(226, 232, 240);
+          }
+          doc.rect(x, y, widths[i], rowHeight, "FD");
+          doc.setFont("helvetica", isHeader ? "bold" : "normal");
+          doc.setFontSize(isHeader ? 8 : 9);
+          setText(isHeader ? [255, 255, 255] : [51, 65, 85]);
+          doc.text(lineArrays[i], x + 7, y + 16);
+          x += widths[i];
+        }
+        y += rowHeight;
+      }
+
+      // Header
+      doc.setFillColor(2, 6, 23);
+      doc.roundedRect(margin, y, contentWidth, 118, 20, 20, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      setText([165, 243, 252]);
+      doc.text("GUIDED DECISION REPORT", margin + 24, y + 30);
+      doc.setFontSize(23);
+      setText([255, 255, 255]);
+      const titleLines = doc.splitTextToSize(clean(scoreData.recommendation.label), contentWidth - 48);
+      doc.text(titleLines.slice(0, 2), margin + 24, y + 58);
+      y += 90;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      setText([226, 232, 240]);
+      const explanationLines = doc.splitTextToSize(clean(scoreData.recommendation.explanation), contentWidth - 48);
+      doc.text(explanationLines.slice(0, 2), margin + 24, y);
+      y = margin + 140;
+
+      // Summary cards
+      const gap = 10;
+      const cardWidth = (contentWidth - gap * 2) / 3;
+      summaryCard("Date", reportDate, margin, y, cardWidth);
+      summaryCard("Mode", getSourceLabel(session.source), margin + cardWidth + gap, y, cardWidth);
+      summaryCard("Answered", `${Object.keys(answers).length}/${session.questions.length}`, margin + (cardWidth + gap) * 2, y, cardWidth);
+      y += 92;
+
+      sectionTitle("Decision summary");
+      writeWrapped(`Life question: ${session.decision}`, margin, contentWidth, { fontSize: 11, fontStyle: "bold", color: [30, 41, 59] });
+      y += 8;
+      const choiceY = y;
+      const choiceW = (contentWidth - gap) / 2;
+      doc.setFillColor(236, 254, 255);
+      doc.setDrawColor(165, 243, 252);
+      doc.roundedRect(margin, choiceY, choiceW, 64, 14, 14, "FD");
+      doc.setFillColor(253, 244, 255);
+      doc.setDrawColor(245, 208, 254);
+      doc.roundedRect(margin + choiceW + gap, choiceY, choiceW, 64, 14, 14, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      setText([14, 116, 144]);
+      doc.text("CHOICE 1", margin + 14, choiceY + 20);
+      setText([162, 28, 175]);
+      doc.text("CHOICE 2", margin + choiceW + gap + 14, choiceY + 20);
+      doc.setFontSize(12);
+      setText([15, 23, 42]);
+      doc.text(doc.splitTextToSize(clean(session.choiceOne), choiceW - 28), margin + 14, choiceY + 42);
+      doc.text(doc.splitTextToSize(clean(session.choiceTwo), choiceW - 28), margin + choiceW + gap + 14, choiceY + 42);
+      y += 82;
+
+      sectionTitle("Decision lean");
+      card(scoreData.leanSummary.label, `${scoreData.leanSummary.note} Direction marker: ${scoreData.score}/100. Lean strength: ${leanStrength}% toward ${favoredChoice}. Raw weighted tally: ${scoreData.raw}.`, "slate");
+
+      sectionTitle("Decision tensions");
+      if (session.decisionTensions?.length) {
+        session.decisionTensions.forEach((tension: any, index: number) => {
+          card(`${index + 1}. ${tension.title}`, tension.explanation, index % 2 === 0 ? "cyan" : "fuchsia");
+        });
+      } else {
+        writeWrapped("No decision tensions were recorded.", margin, contentWidth, { color: [100, 116, 139] });
+      }
+
+      sectionTitle("Strongest answer signals");
+      if (strongestSignals.length) {
+        strongestSignals.forEach(({ question, answer }: any, index: number) => {
+          card(`Signal ${index + 1} - ${question.theme}`, `${question.prompt}\nSelected ${answer.letter}: ${answer.text}\nHidden score: ${answer.score}`, "slate");
+        });
+      } else {
+        writeWrapped("No strongest signals were recorded.", margin, contentWidth, { color: [100, 116, 139] });
+      }
+
+      sectionTitle("Category / area breakdown");
+      const widths = [115, 90, 115, contentWidth - 320];
+      tableRow(["Area", "Signal", "Leans toward", "Meaning"], widths, true);
+      reportBreakdown.forEach((item: any) => {
+        const insight = categoryMeaning(item, session.choiceOne, session.choiceTwo);
+        tableRow([item.theme, insight.strength, insight.favoredChoice, insight.explanation], widths, false);
+      });
+
+      sectionTitle("Background used");
+      writeWrapped(session.background, margin, contentWidth, { fontSize: 10, lineHeight: 14, color: [51, 65, 85] });
+
+      y += 18;
+      ensureSpace(40);
+      doc.setDrawColor(226, 232, 240);
+      doc.line(margin, y, pageWidth - margin, y);
+      y += 16;
+      writeWrapped("This report is a structured reflection tool, not a guarantee of the correct life choice. Use it to understand your weighting and revisit any non-negotiable facts before making a final decision.", margin, contentWidth, { fontSize: 8, lineHeight: 11, color: [100, 116, 139] });
+
+      doc.save(`${fileSafe(session.decision)}.pdf`);
+    } catch (error) {
+      console.error(error);
+      alert("The PDF could not be generated. Make sure the jspdf package is installed by running: npm install jspdf");
+    }
   }
+
 
 
   if (finished && session && scoreData) {
@@ -966,7 +838,7 @@ export default function GuidedDecisionAIApp() {
                   <div className={cx("rounded-2xl px-4 py-3 text-sm font-bold", session.source === "ai" ? "bg-emerald-50 text-emerald-700" : session.source === "local" ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-800")}>
                     {getSourceLabel(session.source)}
                   </div>
-                  <SecondaryButton onClick={downloadConclusionReport}>Export formatted PDF report</SecondaryButton>
+                  <SecondaryButton onClick={downloadConclusionReport}>Download PDF report</SecondaryButton>
                 </div>
               </div>
               <div className="bg-gradient-to-br from-slate-950 via-indigo-950 to-fuchsia-950 p-7 sm:p-9">
