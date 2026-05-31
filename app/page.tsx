@@ -376,7 +376,7 @@ export default function GuidedDecisionAIApp() {
   const [choiceOne, setChoiceOne] = useState("");
   const [choiceTwo, setChoiceTwo] = useState("");
   const [background, setBackground] = useState("");
-  const [questionCount, setQuestionCount] = useState(50);
+  const [questionCount, setQuestionCount] = useState(10);
   const [useAi, setUseAi] = useState(true);
 
   const [apiStatus, setApiStatus] = useState("checking");
@@ -562,6 +562,7 @@ export default function GuidedDecisionAIApp() {
     setAnswers({});
     setActiveIndex(0);
     setFinished(false);
+    setQuestionCount(10);
   }
 
   function getSourceLabel(source: string) {
