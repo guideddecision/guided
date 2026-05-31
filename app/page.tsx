@@ -86,12 +86,25 @@ function fallbackQuestionText(theme: string, detail: string, choiceOne: string, 
   return `Given this detail — “${detail}” — ${endings[theme] || `which option gives you the better overall trade-off between ${choiceOne} and ${choiceTwo}?`}`;
 }
 
-function fallbackOptions(choiceOne: string, choiceTwo: string, random: () => number) {
+function fallbackOptions(choiceOne: string, choiceTwo: string, theme: string, detail: string, random: () => number) {
+  const focus = theme.toLowerCase();
   return shuffle([
-    { score: -2, text: `For this issue, ${choiceOne} protects or creates something important enough that I would accept the cost.` },
-    { score: -1, text: `I would probably choose ${choiceOne} here, but only if I had a practical way to manage the downside.` },
-    { score: 1, text: `I would probably choose ${choiceTwo} here, but only if I had a practical way to manage the downside.` },
-    { score: 2, text: `For this issue, ${choiceTwo} protects or creates something important enough that I would accept the cost.` }
+    {
+      score: -2,
+      text: `For ${focus}, ${choiceOne} protects the part of this decision I would regret losing most.`
+    },
+    {
+      score: -1,
+      text: `${choiceOne} seems more workable here, but only if I make a clear plan for the downside shown in this detail.`
+    },
+    {
+      score: 1,
+      text: `${choiceTwo} may solve the more important problem, although I would need to accept some discomfort to make it work.`
+    },
+    {
+      score: 2,
+      text: `For ${focus}, ${choiceTwo} answers the deeper need behind “${detail}” better than the alternative.`
+    }
   ], random).map((option, index) => ({ ...option, letter: LETTERS[index] }));
 }
 
@@ -107,7 +120,7 @@ function buildFallbackQuestions({ decision, background, choiceOne, choiceTwo, qu
       theme,
       groundingDetail: detail,
       prompt: fallbackQuestionText(theme, detail, choiceOne, choiceTwo),
-      options: fallbackOptions(choiceOne, choiceTwo, random)
+      options: fallbackOptions(choiceOne, choiceTwo, theme, detail, random)
     };
   });
 }
@@ -245,6 +258,211 @@ function categoryMeaning(item: any, choiceOne: string, choiceTwo: string) {
     explanation: item.direction === "balanced" ? "This area did not clearly point either way." : `${item.theme} pointed ${strength.toLowerCase()} toward ${favoredChoice}.`,
     strengthPercent: Math.abs(item.score) * 50
   };
+}
+
+function assessBackgroundQuality(background: string, decision: string, choiceOne: string, choiceTwo: string) {
+  const text = normalizeText(background);
+  const lower = text.toLowerCase();
+  const wordCount = text ? text.split(/\s+/).length : 0;
+
+  const checks = [
+    {
+      key: "enough detail",
+      passed: wordCount >= 80,
+      missing: "more detail about what is really driving the decision"
+    },
+    {
+      key: "both options",
+      passed: lower.includes(choiceOne.toLowerCase().split(" ")[0] || "choiceone") || lower.includes(choiceTwo.toLowerCase().split(" ")[0] || "choicetwo"),
+      missing: "how each option would actually look in real life"
+    },
+    {
+      key: "timeline",
+      passed: /\b(today|tomorrow|week|month|year|soon|later|now|future|12 months|six months|five years)\b/i.test(text),
+      missing: "the time period you are deciding for"
+    },
+    {
+      key: "people",
+      passed: /\b(family|children|partner|friend|friends|parents|kids|team|community|single|relationship)\b/i.test(text),
+      missing: "who else is affected by the choice"
+    },
+    {
+      key: "money or practical pressure",
+      passed: /\b(money|cost|income|business|work|job|career|rent|debt|salary|cash|financial|afford|company)\b/i.test(text),
+      missing: "money, work, or practical constraints"
+    },
+    {
+      key: "emotional stakes",
+      passed: /\b(fear|worry|bored|lonely|stress|happy|regret|excited|sad|pressure|energy|motivation|love|like|hate)\b/i.test(text),
+      missing: "the emotional cost of each option"
+    },
+    {
+      key: "risk or reversibility",
+      passed: /\b(risk|reverse|reversible|irreversible|hard to change|fallback|backup|exit|safe|uncertain|guarantee)\b/i.test(text),
+      missing: "what happens if the first choice is wrong"
+    }
+  ];
+
+  const passed = checks.filter((check) => check.passed);
+  const missing = checks.filter((check) => !check.passed).map((check) => check.missing);
+  const score = Math.round((passed.length / checks.length) * 100);
+  const level = score >= 75 ? "Strong" : score >= 45 ? "Medium" : "Needs more detail";
+
+  return {
+    score,
+    level,
+    strengths: passed.map((check) => check.key),
+    missing,
+    suggestions: missing.slice(0, 4)
+  };
+}
+
+function buildFollowUpQuestions({ decision, choiceOne, choiceTwo, backgroundQuality }: any) {
+  const missing = Array.isArray(backgroundQuality?.missing) ? backgroundQuality.missing : [];
+  const questions = [
+    {
+      id: "best-case-one",
+      label: `What is the strongest real reason to choose ${choiceOne}?`,
+      placeholder: `Example: ${choiceOne} would be better because...`
+    },
+    {
+      id: "best-case-two",
+      label: `What is the strongest real reason to choose ${choiceTwo}?`,
+      placeholder: `Example: ${choiceTwo} would be better because...`
+    },
+    {
+      id: "worst-case",
+      label: "What is the outcome you most want to avoid?",
+      placeholder: "Example: I do not want to end up..."
+    },
+    {
+      id: "non-negotiable",
+      label: "Is there any non-negotiable fact that should override the quiz result?",
+      placeholder: "Example: money, family, health, legal, children, timing..."
+    },
+    {
+      id: "decision-test",
+      label: "What would make you feel, six months from now, that this was the right decision?",
+      placeholder: "Example: I would know it was right if..."
+    }
+  ];
+
+  const missingQuestionMap: Record<string, any> = {
+    "the time period you are deciding for": {
+      id: "timeline",
+      label: "What timeline are you really deciding for?",
+      placeholder: "Example: the next 6 months, 12 months, 5 years..."
+    },
+    "who else is affected by the choice": {
+      id: "people-affected",
+      label: "Who is most affected by this decision, besides you?",
+      placeholder: "Example: family, children, partner, team, friends..."
+    },
+    "money, work, or practical constraints": {
+      id: "practical-constraints",
+      label: "What practical or financial constraints matter most?",
+      placeholder: "Example: income, business momentum, housing, work, debt..."
+    },
+    "the emotional cost of each option": {
+      id: "emotional-cost",
+      label: "What is the emotional cost of each option?",
+      placeholder: "Example: loneliness, boredom, pressure, guilt, regret..."
+    },
+    "what happens if the first choice is wrong": {
+      id: "reversibility",
+      label: "If your first choice is wrong, how easy would it be to change course?",
+      placeholder: "Example: I could reverse it by..., or it would be hard because..."
+    }
+  };
+
+  const extra = missing.map((item: string) => missingQuestionMap[item]).filter(Boolean);
+  const combined = [...extra, ...questions];
+  const seen = new Set();
+  return combined.filter((question) => {
+    if (seen.has(question.id)) return false;
+    seen.add(question.id);
+    return true;
+  }).slice(0, 5);
+}
+
+function buildEnhancedBackground(background: string, followUpQuestions: any[], followUpAnswers: any) {
+  const answered = followUpQuestions
+    .map((question) => ({
+      label: question.label,
+      answer: normalizeText(followUpAnswers[question.id])
+    }))
+    .filter((item) => item.answer);
+
+  if (!answered.length) return normalizeText(background);
+
+  return `${normalizeText(background)}
+
+Additional clarification from follow-up questions:
+${answered.map((item, index) => `${index + 1}. ${item.label} ${item.answer}`).join("\n")}`;
+}
+
+function getDecisionInsights(session: any, answers: any, scoreData: any) {
+  const answered = session.questions
+    .map((question: any) => ({ question, answer: answers[question.id] }))
+    .filter((item: any) => item.answer);
+
+  const choiceOneSignals = answered
+    .filter((item: any) => item.answer.score < 0)
+    .sort((a: any, b: any) => Math.abs(b.answer.score) - Math.abs(a.answer.score))
+    .slice(0, 3);
+
+  const choiceTwoSignals = answered
+    .filter((item: any) => item.answer.score > 0)
+    .sort((a: any, b: any) => Math.abs(b.answer.score) - Math.abs(a.answer.score))
+    .slice(0, 3);
+
+  const favoredChoice = scoreData.raw < 0 ? session.choiceOne : scoreData.raw > 0 ? session.choiceTwo : "Balanced";
+  const opposingSignals = favoredChoice === session.choiceOne ? choiceTwoSignals : favoredChoice === session.choiceTwo ? choiceOneSignals : [...choiceOneSignals, ...choiceTwoSignals];
+
+  const topReasonText = (item: any) => item ? `${item.question.theme}: ${item.answer.text}` : "No strong signal recorded.";
+
+  const unresolvedConflict = opposingSignals.length
+    ? `The main unresolved pull is ${topReasonText(opposingSignals[0])}`
+    : "There was no major opposing signal in your answers, but you should still check for any hard fact you may not have included.";
+
+  const suggestedNextStep = favoredChoice === "Balanced"
+    ? "List the one or two facts that would break the tie, then rerun the decision with those details included."
+    : `Before acting on ${favoredChoice}, test the decision against the unresolved conflict and any non-negotiable facts. If those still hold, make a small practical next step toward ${favoredChoice}.`;
+
+  return {
+    favoredChoice,
+    topReasonsOne: choiceOneSignals.map(topReasonText),
+    topReasonsTwo: choiceTwoSignals.map(topReasonText),
+    unresolvedConflict,
+    suggestedNextStep
+  };
+}
+
+function BackgroundQualityCard({ quality }: any) {
+  const color = quality.level === "Strong" ? "emerald" : quality.level === "Medium" ? "amber" : "red";
+  const classes: Record<string, string> = {
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    amber: "border-amber-200 bg-amber-50 text-amber-800",
+    red: "border-red-200 bg-red-50 text-red-800"
+  };
+
+  return (
+    <div className={cx("rounded-3xl border p-5", classes[color])}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] opacity-80">Background quality</p>
+          <p className="mt-1 text-2xl font-black">{quality.level}</p>
+        </div>
+        <div className="rounded-2xl bg-white/70 px-4 py-2 text-lg font-black">{quality.score}/100</div>
+      </div>
+      {quality.suggestions?.length > 0 && (
+        <div className="mt-3 space-y-1 text-sm font-semibold leading-relaxed">
+          <p>Add more detail about:</p>
+          {quality.suggestions.map((item: string, index: number) => <p key={`${item}-${index}`}>• {item}</p>)}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function PageShell({ children }: any) {
@@ -388,6 +606,11 @@ export default function GuidedDecisionAIApp() {
   const [rewriteNotes, setRewriteNotes] = useState<string[]>([]);
   const [rewriteError, setRewriteError] = useState("");
 
+  const [showFollowUps, setShowFollowUps] = useState(false);
+  const [followUpQuestions, setFollowUpQuestions] = useState<any[]>([]);
+  const [followUpAnswers, setFollowUpAnswers] = useState<any>({});
+  const [backgroundQuality, setBackgroundQuality] = useState<any>(null);
+
   const [session, setSession] = useState<any>(null);
   const [answers, setAnswers] = useState<any>({});
   const [activeIndex, setActiveIndex] = useState(0);
@@ -396,6 +619,10 @@ export default function GuidedDecisionAIApp() {
   const completedCount = Object.keys(answers).length;
   const currentQuestion = session?.questions?.[activeIndex];
   const previewDetails = useMemo(() => extractDetails(background).slice(0, 5), [background]);
+  const previewBackgroundQuality = useMemo(
+    () => assessBackgroundQuality(background, decision, choiceOne, choiceTwo),
+    [background, decision, choiceOne, choiceTwo]
+  );
 
   useEffect(() => {
     checkApiConnection();
@@ -434,7 +661,7 @@ export default function GuidedDecisionAIApp() {
     return categoryBreakdown(session.questions, answers);
   }, [answers, session]);
 
-  async function generateWithAI() {
+  async function generateWithAI(effectiveBackground: string) {
     const response = await fetch("/api/generate-questions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -442,7 +669,7 @@ export default function GuidedDecisionAIApp() {
         decision: normalizeText(decision),
         choiceOne: normalizeText(choiceOne),
         choiceTwo: normalizeText(choiceTwo),
-        background: normalizeText(background),
+        background: normalizeText(effectiveBackground),
         questionCount
       })
     });
@@ -452,7 +679,7 @@ export default function GuidedDecisionAIApp() {
 
     return {
       questions: normalizeAIQuestions(data, questionCount),
-      decisionTensions: normalizeAITensions(data, choiceOne, choiceTwo, background)
+      decisionTensions: normalizeAITensions(data, choiceOne, choiceTwo, effectiveBackground)
     };
   }
 
@@ -492,8 +719,27 @@ export default function GuidedDecisionAIApp() {
     }
   }
 
-  async function startQuiz() {
+  function beginFollowUpReview() {
     if (isGenerating || !normalizeText(decision) || !normalizeText(choiceOne) || !normalizeText(choiceTwo) || !normalizeText(background)) return;
+
+    const quality = assessBackgroundQuality(background, decision, choiceOne, choiceTwo);
+    const questions = buildFollowUpQuestions({ decision, choiceOne, choiceTwo, backgroundQuality: quality });
+
+    setBackgroundQuality(quality);
+    setFollowUpQuestions(questions);
+    setFollowUpAnswers({});
+    setShowFollowUps(true);
+    setSession(null);
+    setAnswers({});
+    setActiveIndex(0);
+    setFinished(false);
+  }
+
+  async function startQuiz(skipFollowUps = false) {
+    if (isGenerating || !normalizeText(decision) || !normalizeText(choiceOne) || !normalizeText(choiceTwo) || !normalizeText(background)) return;
+
+    const effectiveBackground = buildEnhancedBackground(background, followUpQuestions, skipFollowUps ? {} : followUpAnswers);
+    const quality = backgroundQuality || assessBackgroundQuality(background, decision, choiceOne, choiceTwo);
 
     setIsGenerating(true);
     let questions;
@@ -501,18 +747,18 @@ export default function GuidedDecisionAIApp() {
     let source = useAi ? "ai" : "local";
 
     if (!useAi) {
-      questions = buildFallbackQuestions({ decision, background, choiceOne, choiceTwo, questionCount });
-      decisionTensions = buildFallbackTensions(choiceOne, choiceTwo, background);
+      questions = buildFallbackQuestions({ decision, background: effectiveBackground, choiceOne, choiceTwo, questionCount });
+      decisionTensions = buildFallbackTensions(choiceOne, choiceTwo, effectiveBackground);
     } else {
       try {
-        const generated = await generateWithAI();
+        const generated = await generateWithAI(effectiveBackground);
         questions = generated.questions;
         decisionTensions = generated.decisionTensions;
         setApiStatus("connected");
         setApiHasKey(true);
       } catch {
-        questions = buildFallbackQuestions({ decision, background, choiceOne, choiceTwo, questionCount });
-        decisionTensions = buildFallbackTensions(choiceOne, choiceTwo, background);
+        questions = buildFallbackQuestions({ decision, background: effectiveBackground, choiceOne, choiceTwo, questionCount });
+        decisionTensions = buildFallbackTensions(choiceOne, choiceTwo, effectiveBackground);
         source = "fallback";
         if (apiStatus === "checking") setApiStatus("offline");
       }
@@ -520,17 +766,24 @@ export default function GuidedDecisionAIApp() {
 
     setSession({
       decision: normalizeText(decision),
-      background: normalizeText(background),
+      background: normalizeText(effectiveBackground),
+      originalBackground: normalizeText(background),
       choiceOne: normalizeText(choiceOne),
       choiceTwo: normalizeText(choiceTwo),
       questionCount,
       source,
+      backgroundQuality: quality,
+      followUpAnswers: followUpQuestions.map((question) => ({
+        question: question.label,
+        answer: normalizeText(followUpAnswers[question.id])
+      })).filter((item) => item.answer),
       decisionTensions,
       questions
     });
     setAnswers({});
     setActiveIndex(0);
     setFinished(false);
+    setShowFollowUps(false);
     setIsGenerating(false);
   }
 
@@ -570,6 +823,10 @@ export default function GuidedDecisionAIApp() {
     setRewriteDraft("");
     setRewriteNotes([]);
     setRewriteError("");
+    setShowFollowUps(false);
+    setFollowUpQuestions([]);
+    setFollowUpAnswers({});
+    setBackgroundQuality(null);
   }
 
   function getSourceLabel(source: string) {
@@ -600,6 +857,8 @@ export default function GuidedDecisionAIApp() {
       const reportBreakdown = categoryBreakdown(session.questions, answers);
       const leanStrength = scoreData.maxAbs ? Math.round((Math.abs(scoreData.raw) / scoreData.maxAbs) * 100) : 0;
       const favoredChoice = scoreData.raw < 0 ? session.choiceOne : scoreData.raw > 0 ? session.choiceTwo : "Balanced";
+      const reportInsights = getDecisionInsights(session, answers, scoreData);
+      const reportQuality = session.backgroundQuality || assessBackgroundQuality(session.originalBackground || session.background, session.decision, session.choiceOne, session.choiceTwo);
 
       const clean = (value: any) => String(value ?? "").replace(/\s+/g, " ").trim();
       const fileSafe = (value: any) => clean(value).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 44) || "decision-report";
@@ -771,6 +1030,20 @@ export default function GuidedDecisionAIApp() {
       sectionTitle("Decision lean");
       card(scoreData.leanSummary.label, `${scoreData.leanSummary.note} Direction marker: ${scoreData.score}/100. Lean strength: ${leanStrength}% toward ${favoredChoice}. Raw weighted tally: ${scoreData.raw}.`, "slate");
 
+      sectionTitle("Why the result leaned this way");
+      card(`Top reasons toward ${session.choiceOne}`, reportInsights.topReasonsOne.length ? reportInsights.topReasonsOne.join("\n") : "No strong signal recorded.", "cyan");
+      card(`Top reasons toward ${session.choiceTwo}`, reportInsights.topReasonsTwo.length ? reportInsights.topReasonsTwo.join("\n") : "No strong signal recorded.", "fuchsia");
+      card("Biggest unresolved conflict", reportInsights.unresolvedConflict, "slate");
+      card("Suggested next step", reportInsights.suggestedNextStep, "slate");
+
+      sectionTitle("Background quality and follow-up context");
+      card("Background quality", `${reportQuality.level} (${reportQuality.score}/100). ${reportQuality.suggestions?.length ? `Missing or thin areas: ${reportQuality.suggestions.join(", ")}.` : "The background included enough useful detail for a strong analysis."}`, "slate");
+      if (session.followUpAnswers?.length) {
+        session.followUpAnswers.forEach((item: any, index: number) => {
+          card(`Follow-up ${index + 1}`, `${item.question}\n${item.answer}`, index % 2 === 0 ? "cyan" : "fuchsia");
+        });
+      }
+
       sectionTitle("Decision tensions");
       if (session.decisionTensions?.length) {
         session.decisionTensions.forEach((tension: any, index: number) => {
@@ -816,12 +1089,62 @@ export default function GuidedDecisionAIApp() {
 
 
 
+
+  if (showFollowUps) {
+    const answeredCount = Object.values(followUpAnswers).filter((value) => normalizeText(value)).length;
+
+    return (
+      <PageShell>
+        <div className="mx-auto max-w-5xl space-y-6">
+          <Card className="overflow-hidden">
+            <div className="bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 p-7 text-white sm:p-9">
+              <Eyebrow light>Clarify before the quiz</Eyebrow>
+              <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Add the details that make the questions better.</h1>
+              <p className="mt-4 max-w-3xl text-lg leading-relaxed text-slate-200">
+                These follow-up answers are added to your background before the AI creates the quiz. They are optional, but they help the questions and final report become more specific.
+              </p>
+            </div>
+          </Card>
+
+          {backgroundQuality && <BackgroundQualityCard quality={backgroundQuality} />}
+
+          <Card className="p-6 sm:p-8">
+            <div className="space-y-5">
+              {followUpQuestions.map((question, index) => (
+                <Field key={question.id} label={`${index + 1}. ${question.label}`}>
+                  <textarea
+                    value={followUpAnswers[question.id] || ""}
+                    onChange={(event) => setFollowUpAnswers((previous: any) => ({ ...previous, [question.id]: event.target.value }))}
+                    rows={3}
+                    className={inputClass()}
+                    placeholder={question.placeholder}
+                  />
+                </Field>
+              ))}
+            </div>
+
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <SecondaryButton onClick={() => setShowFollowUps(false)}>Back to setup</SecondaryButton>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <SecondaryButton onClick={() => startQuiz(true)} disabled={isGenerating}>Skip follow-ups</SecondaryButton>
+                <PrimaryButton onClick={() => startQuiz(false)} disabled={isGenerating}>
+                  {isGenerating ? "Creating questions..." : `Generate ${questionCount} questions${answeredCount ? ` with ${answeredCount} clarification${answeredCount === 1 ? "" : "s"}` : ""}`}
+                </PrimaryButton>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </PageShell>
+    );
+  }
+
   if (finished && session && scoreData) {
     const strongestSignals = session.questions
       .map((question: any) => ({ question, answer: answers[question.id] }))
       .filter((item: any) => item.answer)
       .sort((a: any, b: any) => Math.abs(b.answer.score) - Math.abs(a.answer.score))
       .slice(0, 6);
+    const decisionInsights = getDecisionInsights(session, answers, scoreData);
 
     return (
       <PageShell>
@@ -865,6 +1188,39 @@ export default function GuidedDecisionAIApp() {
               </div>
             </Card>
           )}
+
+          <Card className="p-6 sm:p-7">
+            <Eyebrow>Conclusion details</Eyebrow>
+            <h2 className="mt-2 text-2xl font-black tracking-tight">Why the result leaned this way</h2>
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-3xl border border-cyan-100 bg-cyan-50 p-5">
+                <p className="font-black text-cyan-800">Top reasons toward {session.choiceOne}</p>
+                <div className="mt-3 space-y-2">
+                  {decisionInsights.topReasonsOne.length ? decisionInsights.topReasonsOne.map((reason: string, index: number) => (
+                    <p key={`${reason}-${index}`} className="text-sm font-semibold leading-relaxed text-slate-700">• {reason}</p>
+                  )) : <p className="text-sm font-semibold text-slate-500">No strong signal recorded.</p>}
+                </div>
+              </div>
+              <div className="rounded-3xl border border-fuchsia-100 bg-fuchsia-50 p-5">
+                <p className="font-black text-fuchsia-800">Top reasons toward {session.choiceTwo}</p>
+                <div className="mt-3 space-y-2">
+                  {decisionInsights.topReasonsTwo.length ? decisionInsights.topReasonsTwo.map((reason: string, index: number) => (
+                    <p key={`${reason}-${index}`} className="text-sm font-semibold leading-relaxed text-slate-700">• {reason}</p>
+                  )) : <p className="text-sm font-semibold text-slate-500">No strong signal recorded.</p>}
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-3xl border border-amber-100 bg-amber-50 p-5">
+                <p className="font-black text-amber-800">Biggest unresolved conflict</p>
+                <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-700">{decisionInsights.unresolvedConflict}</p>
+              </div>
+              <div className="rounded-3xl border border-slate-100 bg-slate-50 p-5">
+                <p className="font-black text-slate-900">Suggested next step</p>
+                <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-700">{decisionInsights.suggestedNextStep}</p>
+              </div>
+            </div>
+          </Card>
 
           <div className="grid gap-6 lg:grid-cols-2">
             <Card className="p-6 sm:p-7">
@@ -1099,8 +1455,8 @@ export default function GuidedDecisionAIApp() {
               )}
             </div>
 
-            <PrimaryButton onClick={startQuiz} disabled={isGenerating || !normalizeText(decision) || !normalizeText(choiceOne) || !normalizeText(choiceTwo) || !normalizeText(background)} className="mt-7 w-full py-5 text-lg">
-              {isGenerating ? (useAi ? "Creating constructive questions..." : "Creating local test questions...") : `Generate ${questionCount} questions →`}
+            <PrimaryButton onClick={beginFollowUpReview} disabled={isGenerating || !normalizeText(decision) || !normalizeText(choiceOne) || !normalizeText(choiceTwo) || !normalizeText(background)} className="mt-7 w-full py-5 text-lg">
+              {isGenerating ? (useAi ? "Creating constructive questions..." : "Creating local test questions...") : "Review background & continue →"}
             </PrimaryButton>
           </Card>
 
@@ -1127,6 +1483,8 @@ export default function GuidedDecisionAIApp() {
               </div>
               <p className="mt-4 text-sm font-medium leading-relaxed text-slate-500">The richer the background, the more constructive and relevant the AI-generated questions will be.</p>
             </Card>
+
+            <BackgroundQualityCard quality={previewBackgroundQuality} />
           </div>
         </div>
       </div>

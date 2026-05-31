@@ -149,7 +149,7 @@ Rules:
 - Do not write answer choices that all follow the same template.
 - Do not use visible phrases like "strongly points", "slightly points", "strongly favors", "slightly favors", "score", "hidden score", or "trade-offs on this point" in the answer choice text.
 - The answer choices must be natural first-person statements the user could actually agree with.
-- Each answer choice should represent a different real attitude, priority, fear, sacrifice, or condition related to that specific question.
+- Each answer choice should represent a different real attitude, priority, fear, sacrifice, condition, threshold, or practical consequence related to that specific question.
 - The answer choices should be specific enough that the user feels the AI understood the actual decision.
 - Every question must have exactly four options.
 - Each question must include one option scored -2, one scored -1, one scored 1, and one scored 2.
@@ -179,13 +179,13 @@ ${background}
 Number of questions to generate:
 ${questionCount}
 
-Make the questions constructive. They should test the real trade-offs in the user's background, not simply repeat the background.
+Make the questions constructive. They should test the real trade-offs in the user's background and any follow-up clarifications, not simply repeat the background.
 
 For every answer choice:
 - Make it concrete and specific to the user's situation.
 - Make A, B, C, and D meaningfully different from each other.
 - Do not label answers as strong/slight or choice 1/choice 2 in the visible text.
-- Avoid using the same sentence structure across all answers.
+- Avoid using the same sentence structure across all answers. Use concrete wording such as conditions, priorities, thresholds, fears, acceptable sacrifices, and next-step consequences.
 `;
 
     const response = await fetch("https://api.openai.com/v1/responses", {
