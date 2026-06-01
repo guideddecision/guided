@@ -184,6 +184,90 @@ function normalizeAITensions(data: any, choiceOne: string, choiceTwo: string, ba
   return cleaned.length ? cleaned : buildFallbackTensions(choiceOne, choiceTwo, background);
 }
 
+function normalizePracticalContext(data: any) {
+  const context = data?.practicalContext || {};
+  const factors = Array.isArray(context.practicalFactors) ? context.practicalFactors : [];
+  const sources = Array.isArray(context.sources) ? context.sources : [];
+
+  return {
+    decisionType: normalizeText(context.decisionType) || "General decision",
+    researchSummary: normalizeText(context.researchSummary) || "",
+    expandedBackground: normalizeText(context.expandedBackground) || "",
+    researchLimitations: normalizeText(context.researchLimitations) || "",
+    practicalFactors: factors
+      .map((item: any, index: number) => ({
+        title: normalizeText(item.title) || `Practical factor ${index + 1}`,
+        explanation: normalizeText(item.explanation) || "",
+        relevance: normalizeText(item.relevance) || ""
+      }))
+      .filter((item: any) => item.title && (item.explanation || item.relevance))
+      .slice(0, 8),
+    sources: sources
+      .map((item: any, index: number) => ({
+        title: normalizeText(item.title) || `Source ${index + 1}`,
+        url: normalizeText(item.url),
+        note: normalizeText(item.note)
+      }))
+      .filter((item: any) => item.title || item.url)
+      .slice(0, 8)
+  };
+}
+
+function PracticalContextCard({ practicalContext }: any) {
+  if (!practicalContext) return null;
+  const hasFactors = practicalContext.practicalFactors?.length > 0;
+  const hasSummary = Boolean(practicalContext.researchSummary);
+  const hasSources = practicalContext.sources?.length > 0;
+
+  if (!hasFactors && !hasSummary && !hasSources) return null;
+
+  return (
+    <Card className="p-6 sm:p-7">
+      <Eyebrow>Practical research context</Eyebrow>
+      <h2 className="mt-2 text-2xl font-black tracking-tight">Extra information the AI used</h2>
+      {practicalContext.decisionType && (
+        <p className="mt-2 text-sm font-bold text-slate-500">Decision type: {practicalContext.decisionType}</p>
+      )}
+      {hasSummary && (
+        <p className="mt-4 text-sm font-semibold leading-relaxed text-slate-600">{practicalContext.researchSummary}</p>
+      )}
+      {hasFactors && (
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {practicalContext.practicalFactors.map((factor: any, index: number) => (
+            <div key={`${factor.title}-${index}`} className="rounded-3xl border border-blue-100 bg-blue-50 p-5 shadow-sm">
+              <p className="font-black text-blue-900">{factor.title}</p>
+              {factor.explanation && <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-700">{factor.explanation}</p>}
+              {factor.relevance && <p className="mt-2 text-xs font-bold leading-relaxed text-blue-800">Why it matters: {factor.relevance}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+      {hasSources && (
+        <div className="mt-5 rounded-3xl border border-slate-100 bg-white p-5">
+          <p className="text-sm font-black text-slate-900">Sources used</p>
+          <div className="mt-3 space-y-2">
+            {practicalContext.sources.map((source: any, index: number) => (
+              <p key={`${source.url}-${index}`} className="text-xs font-semibold leading-relaxed text-slate-600">
+                {source.url ? (
+                  <a className="text-cyan-700 underline" href={source.url} target="_blank" rel="noreferrer">{source.title || source.url}</a>
+                ) : (
+                  <span>{source.title}</span>
+                )}
+                {source.note ? ` — ${source.note}` : ""}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+      {practicalContext.researchLimitations && (
+        <p className="mt-4 rounded-2xl bg-amber-50 p-4 text-xs font-bold leading-relaxed text-amber-800">
+          Research limitation: {practicalContext.researchLimitations}
+        </p>
+      )}
+    </Card>
+  );
+}
+
 function scoreToRecommendation(raw: number, maxAbs: number, choiceOne: string, choiceTwo: string) {
   const strength = maxAbs ? Math.abs(raw) / maxAbs : 0;
   const favoredChoice = raw < 0 ? choiceOne : choiceTwo;
@@ -677,9 +761,12 @@ export default function GuidedDecisionAIApp() {
     if (!response.ok) throw new Error("AI generation failed");
     const data = await response.json();
 
+    const practicalContext = normalizePracticalContext(data);
+
     return {
       questions: normalizeAIQuestions(data, questionCount),
-      decisionTensions: normalizeAITensions(data, choiceOne, choiceTwo, effectiveBackground)
+      decisionTensions: normalizeAITensions(data, choiceOne, choiceTwo, practicalContext.expandedBackground || effectiveBackground),
+      practicalContext
     };
   }
 
@@ -766,8 +853,9 @@ export default function GuidedDecisionAIApp() {
 
     setSession({
       decision: normalizeText(decision),
-      background: normalizeText(effectiveBackground),
+      background: normalizeText(practicalContext?.expandedBackground || effectiveBackground),
       originalBackground: normalizeText(background),
+      practicalContext,
       choiceOne: normalizeText(choiceOne),
       choiceTwo: normalizeText(choiceTwo),
       questionCount,
@@ -1051,7 +1139,27 @@ export default function GuidedDecisionAIApp() {
         "slate"
       );
 
-      sectionTitle("2. Why the result leaned this way");
+      if (session.practicalContext) {
+        sectionTitle("2. Practical research context");
+        keyValue("Decision type", session.practicalContext.decisionType || "General decision");
+        if (session.practicalContext.researchSummary) keyValue("Research summary", session.practicalContext.researchSummary);
+        if (session.practicalContext.expandedBackground) keyValue("Expanded background used", session.practicalContext.expandedBackground);
+        if (session.practicalContext.practicalFactors?.length) {
+          subTitle("Practical factors");
+          session.practicalContext.practicalFactors.forEach((factor: any, index: number) => {
+            callout(`${index + 1}. ${factor.title}`, `${factor.explanation}${factor.relevance ? "\nWhy it matters: " + factor.relevance : ""}`, index % 2 === 0 ? "cyan" : "fuchsia");
+          });
+        }
+        if (session.practicalContext.sources?.length) {
+          subTitle("Sources");
+          session.practicalContext.sources.forEach((source: any) => {
+            bulletList([`${source.title || source.url}${source.url ? " — " + source.url : ""}${source.note ? " — " + source.note : ""}`]);
+          });
+        }
+        if (session.practicalContext.researchLimitations) keyValue("Research limitations", session.practicalContext.researchLimitations);
+      }
+
+      sectionTitle(session.practicalContext ? "3. Why the result leaned this way" : "2. Why the result leaned this way");
       callout(`Top reasons toward ${session.choiceOne}`, reportInsights.topReasonsOne.length ? reportInsights.topReasonsOne.join("\n") : "No strong signal recorded.", "cyan");
       callout(`Top reasons toward ${session.choiceTwo}`, reportInsights.topReasonsTwo.length ? reportInsights.topReasonsTwo.join("\n") : "No strong signal recorded.", "fuchsia");
       callout("Biggest unresolved conflict", reportInsights.unresolvedConflict, "slate");
@@ -1236,6 +1344,8 @@ export default function GuidedDecisionAIApp() {
             </div>
           </Card>
 
+          <PracticalContextCard practicalContext={session.practicalContext} />
+
           {session.decisionTensions?.length > 0 && (
             <Card className="p-6 sm:p-7">
               <Eyebrow>Decision tensions</Eyebrow>
@@ -1370,6 +1480,8 @@ export default function GuidedDecisionAIApp() {
               AI generation is not connected yet, so this quiz is using the built-in fallback questions.
             </Card>
           )}
+
+          {activeIndex === 0 && <PracticalContextCard practicalContext={session.practicalContext} />}
 
           {activeIndex === 0 && session.decisionTensions?.length > 0 && (
             <Card className="p-6 sm:p-7">
@@ -1543,7 +1655,7 @@ export default function GuidedDecisionAIApp() {
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-semibold leading-relaxed text-slate-400">Your background details will appear here once you start typing.</div>
                 )}
               </div>
-              <p className="mt-4 text-sm font-medium leading-relaxed text-slate-500">The richer the background, the more constructive and relevant the AI-generated questions will be.</p>
+              <p className="mt-4 text-sm font-medium leading-relaxed text-slate-500">The richer the background, the better the AI can research practical context and generate specific questions.</p>
             </Card>
 
             <BackgroundQualityCard quality={previewBackgroundQuality} />

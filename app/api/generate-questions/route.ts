@@ -43,21 +43,57 @@ function shuffleAnswerOptions(parsed: any) {
       letter: ["A", "B", "C", "D"][index]
     }));
 
-    return {
-      ...question,
-      options: shuffledOptions
-    };
+    return { ...question, options: shuffledOptions };
   });
 
   return parsed;
 }
 
-
 const questionSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["decisionTensions", "questions"],
+  required: ["practicalContext", "decisionTensions", "questions"],
   properties: {
+    practicalContext: {
+      type: "object",
+      additionalProperties: false,
+      required: ["decisionType", "researchSummary", "expandedBackground", "practicalFactors", "sources", "researchLimitations"],
+      properties: {
+        decisionType: { type: "string" },
+        researchSummary: { type: "string" },
+        expandedBackground: { type: "string" },
+        practicalFactors: {
+          type: "array",
+          minItems: 2,
+          maxItems: 8,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["title", "explanation", "relevance"],
+            properties: {
+              title: { type: "string" },
+              explanation: { type: "string" },
+              relevance: { type: "string" }
+            }
+          }
+        },
+        sources: {
+          type: "array",
+          maxItems: 8,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["title", "url", "note"],
+            properties: {
+              title: { type: "string" },
+              url: { type: "string" },
+              note: { type: "string" }
+            }
+          }
+        },
+        researchLimitations: { type: "string" }
+      }
+    },
     decisionTensions: {
       type: "array",
       minItems: 3,
@@ -107,7 +143,8 @@ const questionSchema = {
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    hasKey: Boolean(process.env.OPENAI_API_KEY)
+    hasKey: Boolean(process.env.OPENAI_API_KEY),
+    webResearch: true
   });
 }
 
@@ -127,34 +164,37 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "OPENAI_API_KEY is not set" }, { status: 500 });
     }
 
-    const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+    const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 
     const systemPrompt = `
-You are a practical guided-decision coach.
+You are a practical guided-decision research coach.
 
-Your job is not to create generic quiz questions.
-Your job is to read the user's life question and background, infer the real trade-offs, then create constructive questions that help the user understand what they actually value.
+The app is not just a quiz. Your job has four steps:
+1. Understand the user's decision and classify what kind of practical research is relevant.
+2. Use web search for objective, practical information about the two choices when the choices are researchable.
+   Examples:
+   - two cars: reliability, safety, running costs, ownership costs, reviews, recalls, warranty, market prices
+   - two cities: cost of living, jobs/business environment, weather, crime/safety, healthcare, schools, transport, housing, lifestyle
+   - two countries: residency/visa, taxation, healthcare, cost of living, family/travel logistics
+   - two products/services: pricing, reviews, features, support, current availability
+   - career/business options: market demand, income ranges, risks, barriers, timing
+3. Expand the user's background with the practical facts that actually matter.
+4. Generate the decision questions from the expanded background and the real decision tensions.
 
-Rules:
-- Use only the information provided by the user.
-- Do not invent facts.
-- First identify the real decision tensions.
-- Then write exactly the requested number of multiple-choice questions.
-- Each question must be specific to the user's life choice and background.
-- Each question must compare Choice 1 and Choice 2 directly.
-- Avoid vague questions like "which feels better?"
-- Avoid therapy-sounding language.
-- Avoid generic quiz wording.
-- Do not simply repeat the background.
-- Do not write answer choices that all follow the same template.
-- Do not use visible phrases like "strongly points", "slightly points", "strongly favors", "slightly favors", "score", "hidden score", or "trade-offs on this point" in the answer choice text.
-- The answer choices must be natural first-person statements the user could actually agree with.
-- Each answer choice should represent a different real attitude, priority, fear, sacrifice, condition, threshold, or practical consequence related to that specific question.
-- The answer choices should be specific enough that the user feels the AI understood the actual decision.
-- Every question must have exactly four options.
-- Each question must include one option scored -2, one scored -1, one scored 1, and one scored 2.
+Critical rules:
+- Do not create generic questions.
+- Do not simply repeat the user's background.
+- Do not invent facts. If web research is weak, say that in researchLimitations.
+- Use practical, current, externally grounded facts where helpful.
+- Keep sources in the sources array. Include direct URLs when available.
+- If the choices are not researchable, use the user's background and clearly explain that external research was limited.
+- Every question must compare Choice 1 and Choice 2 directly.
+- The questions should test the real practical consequences, not only feelings.
+- Answer choices must be natural first-person statements the user could actually agree with.
+- Do not use visible phrases like "strongly points", "slightly points", "score", "hidden score", or "trade-offs on this point" in the answer text.
+- Each answer choice should represent a different real attitude, priority, condition, threshold, risk tolerance, cost acceptance, or next-step consequence.
+- Each question must include exactly one answer scored -2, one scored -1, one scored 1, and one scored 2.
 - Randomize which score appears under A, B, C, and D.
-- Do not use the same score-letter pattern across questions.
 - Score meaning:
   -2 means the answer strongly supports Choice 1
   -1 means the answer somewhat supports Choice 1
@@ -173,19 +213,19 @@ ${choiceOne}
 Choice 2:
 ${choiceTwo}
 
-Background:
+User background:
 ${background}
 
 Number of questions to generate:
 ${questionCount}
 
-Make the questions constructive. They should test the real trade-offs in the user's background and any follow-up clarifications, not simply repeat the background.
-
-For every answer choice:
-- Make it concrete and specific to the user's situation.
-- Make A, B, C, and D meaningfully different from each other.
-- Do not label answers as strong/slight or choice 1/choice 2 in the visible text.
-- Avoid using the same sentence structure across all answers. Use concrete wording such as conditions, priorities, thresholds, fears, acceptable sacrifices, and next-step consequences.
+Output requirements:
+- practicalContext.researchSummary should summarize what the web/practical research adds to the decision.
+- practicalContext.expandedBackground should merge the user's background with the researched context in plain language.
+- practicalContext.practicalFactors should list the specific factual/practical issues the user should know.
+- practicalContext.sources should list sources used, with URLs when available.
+- decisionTensions should explain the real conflicts after considering both user background and researched facts.
+- questions must be written from the expandedBackground, practicalFactors, and decisionTensions.
 `;
 
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -200,10 +240,13 @@ For every answer choice:
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
+        tools: [
+          { type: "web_search", search_context_size: "medium" }
+        ],
         text: {
           format: {
             type: "json_schema",
-            name: "guided_decision_questions",
+            name: "guided_decision_research_questions",
             strict: true,
             schema: questionSchema
           }
@@ -226,6 +269,6 @@ For every answer choice:
 
     return NextResponse.json(parsed);
   } catch (error: any) {
-    return NextResponse.json({ error: "Failed to generate questions", detail: error?.message || String(error) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to generate researched questions", detail: error?.message || String(error) }, { status: 500 });
   }
 }
