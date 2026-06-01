@@ -831,6 +831,7 @@ export default function GuidedDecisionAIApp() {
     setIsGenerating(true);
     let questions;
     let decisionTensions;
+    let practicalContext: any = null;
     let source = useAi ? "ai" : "local";
 
     if (!useAi) {
@@ -841,6 +842,7 @@ export default function GuidedDecisionAIApp() {
         const generated = await generateWithAI(effectiveBackground);
         questions = generated.questions;
         decisionTensions = generated.decisionTensions;
+        practicalContext = generated.practicalContext;
         setApiStatus("connected");
         setApiHasKey(true);
       } catch {
