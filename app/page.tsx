@@ -685,6 +685,7 @@ export default function GuidedDecisionAIApp() {
   const [apiHasKey, setApiHasKey] = useState(false);
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [aiError, setAiError] = useState("");
   const [isRewriting, setIsRewriting] = useState(false);
   const [rewriteDraft, setRewriteDraft] = useState("");
   const [rewriteNotes, setRewriteNotes] = useState<string[]>([]);
@@ -1572,6 +1573,14 @@ export default function GuidedDecisionAIApp() {
                 <Field label="Choice 1"><input value={choiceOne} onChange={(event) => setChoiceOne(event.target.value)} className={inputClass()} placeholder="Type option 1. Example: Stay in Spain" /></Field>
                 <Field label="Choice 2"><input value={choiceTwo} onChange={(event) => setChoiceTwo(event.target.value)} className={inputClass("fuchsia")} placeholder="Type option 2. Example: Move back to Florida" /></Field>
               </div>
+              <Field label="Question mode">
+                <div className="grid grid-cols-2 gap-3">
+                  <button type="button" onClick={() => { setUseAi(true); setAiError(""); }} className={cx("min-h-[58px] rounded-2xl border px-4 py-4 text-center font-black transition", useAi ? "border-emerald-600 bg-emerald-600 text-white shadow-xl shadow-emerald-900/20" : "border-slate-200 bg-white text-slate-700")}>AI research mode</button>
+                  <button type="button" onClick={() => { setUseAi(false); setAiError(""); }} className={cx("min-h-[58px] rounded-2xl border px-4 py-4 text-center font-black transition", !useAi ? "border-slate-950 bg-slate-950 text-white shadow-xl shadow-slate-950/20" : "border-slate-200 bg-white text-slate-700")}>Local test mode</button>
+                </div>
+                <p className="mt-2 text-xs font-bold text-slate-500">AI mode researches and expands the background. Local mode uses built-in questions and will look generic.</p>
+              </Field>
+
               <Field label="Number of questions">
                 <div className="grid grid-cols-3 gap-3">
                   {[10, 30, 50].map((count) => (

@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 function getOutputText(data: any) {
   if (typeof data.output_text === "string") return data.output_text;
-
   const parts: string[] = [];
   for (const item of data.output || []) {
     for (const content of item.content || []) {
@@ -34,18 +33,14 @@ function shuffleArray(items: any[]) {
 
 function shuffleAnswerOptions(parsed: any) {
   if (!Array.isArray(parsed.questions)) return parsed;
-
   parsed.questions = parsed.questions.map((question: any) => {
     if (!Array.isArray(question.options) || question.options.length !== 4) return question;
-
-    const shuffledOptions = shuffleArray(question.options).map((option: any, index: number) => ({
+    const shuffled = shuffleArray(question.options).map((option: any, index: number) => ({
       ...option,
       letter: ["A", "B", "C", "D"][index]
     }));
-
-    return { ...question, options: shuffledOptions };
+    return { ...question, options: shuffled };
   });
-
   return parsed;
 }
 
@@ -144,6 +139,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     hasKey: Boolean(process.env.OPENAI_API_KEY),
+    mode: "deep_research_questions",
     webResearch: true
   });
 }
@@ -169,42 +165,33 @@ export async function POST(req: Request) {
     const systemPrompt = `
 You are a practical guided-decision research coach.
 
-The app is not just a quiz. Your job has four steps:
-1. Understand the user's decision and classify what kind of practical research is relevant.
-2. Use web search for objective, practical information about the two choices when the choices are researchable.
-   Examples:
-   - two cars: reliability, safety, running costs, ownership costs, reviews, recalls, warranty, market prices
-   - two cities: cost of living, jobs/business environment, weather, crime/safety, healthcare, schools, transport, housing, lifestyle
-   - two countries: residency/visa, taxation, healthcare, cost of living, family/travel logistics
-   - two products/services: pricing, reviews, features, support, current availability
-   - career/business options: market demand, income ranges, risks, barriers, timing
-3. Expand the user's background with the practical facts that actually matter.
-4. Generate the decision questions from the expanded background and the real decision tensions.
+The user wants better detail, not generic questions. You must do three jobs:
 
-Critical rules:
-- Do not create generic questions.
-- Do not simply repeat the user's background.
-- Do not invent facts. If web research is weak, say that in researchLimitations.
-- Use practical, current, externally grounded facts where helpful.
-- Keep sources in the sources array. Include direct URLs when available.
-- If the choices are not researchable, use the user's background and clearly explain that external research was limited.
-- Every question must compare Choice 1 and Choice 2 directly.
-- The questions should test the real practical consequences, not only feelings.
-- Answer choices must be natural first-person statements the user could actually agree with.
-- Do not use visible phrases like "strongly points", "slightly points", "score", "hidden score", or "trade-offs on this point" in the answer text.
-- Each answer choice should represent a different real attitude, priority, condition, threshold, risk tolerance, cost acceptance, or next-step consequence.
-- Each question must include exactly one answer scored -2, one scored -1, one scored 1, and one scored 2.
-- Randomize which score appears under A, B, C, and D.
-- Score meaning:
-  -2 means the answer strongly supports Choice 1
-  -1 means the answer somewhat supports Choice 1
-   1 means the answer somewhat supports Choice 2
-   2 means the answer strongly supports Choice 2
+1. Research and expand the background:
+- If the choices are researchable, use web search to find practical, current information about BOTH choices.
+- Examples: cars, cities, countries, schools, jobs, products, business options, travel options, neighborhoods.
+- Bring in facts that would change the decision: cost, safety, reliability, market conditions, lifestyle, logistics, legal/regulatory issues, time, risk, availability, reviews, common complaints, and objective pros/cons.
+- If the choices are personal and not researchable, expand the background using the user's facts and clearly say external research was limited.
+
+2. Generate practical decision tensions:
+- Identify the real conflicts after adding researched context.
+- These must be specific to the choices, not generic categories.
+
+3. Generate exactly the requested number of questions:
+- Questions must be based on the expanded background and researched practical factors.
+- Do NOT use generic stems like "which choice feels better".
+- Do NOT simply ask "strongly/slightly".
+- Each answer must be a specific first-person position, threshold, risk tolerance, cost acceptance, or condition.
+- The answer choices should sound different from each other.
+- The answer choices must not reveal scoring.
+- Each question must contain one answer scored -2, one -1, one 1, and one 2.
+- Randomize answer order.
+
 Return only valid JSON matching the schema.
 `;
 
     const userPrompt = `
-Life question:
+Decision:
 ${decision}
 
 Choice 1:
@@ -216,16 +203,11 @@ ${choiceTwo}
 User background:
 ${background}
 
-Number of questions to generate:
+Question count:
 ${questionCount}
 
-Output requirements:
-- practicalContext.researchSummary should summarize what the web/practical research adds to the decision.
-- practicalContext.expandedBackground should merge the user's background with the researched context in plain language.
-- practicalContext.practicalFactors should list the specific factual/practical issues the user should know.
-- practicalContext.sources should list sources used, with URLs when available.
-- decisionTensions should explain the real conflicts after considering both user background and researched facts.
-- questions must be written from the expandedBackground, practicalFactors, and decisionTensions.
+Important:
+The user complained the prior version still asked the same generic questions. Make this output specific, practical, researched, and grounded in the actual two choices.
 `;
 
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -246,7 +228,7 @@ Output requirements:
         text: {
           format: {
             type: "json_schema",
-            name: "guided_decision_research_questions",
+            name: "guided_decision_researched_questions",
             strict: true,
             schema: questionSchema
           }
