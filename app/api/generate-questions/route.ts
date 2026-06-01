@@ -139,7 +139,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     hasKey: Boolean(process.env.OPENAI_API_KEY),
-    mode: "deep_research_questions",
+    mode: "ai_research_expanded_background",
     webResearch: true
   });
 }
@@ -165,28 +165,29 @@ export async function POST(req: Request) {
     const systemPrompt = `
 You are a practical guided-decision research coach.
 
-The user wants better detail, not generic questions. You must do three jobs:
+The user complained that previous versions asked generic questions. Do not do that.
 
-1. Research and expand the background:
-- If the choices are researchable, use web search to find practical, current information about BOTH choices.
-- Examples: cars, cities, countries, schools, jobs, products, business options, travel options, neighborhoods.
-- Bring in facts that would change the decision: cost, safety, reliability, market conditions, lifestyle, logistics, legal/regulatory issues, time, risk, availability, reviews, common complaints, and objective pros/cons.
-- If the choices are personal and not researchable, expand the background using the user's facts and clearly say external research was limited.
+You must:
+1. Research the two choices when they are researchable.
+2. Expand the user's background with practical, external, current facts.
+3. Identify specific decision tensions.
+4. Generate exactly the requested number of multiple-choice questions from the expanded background.
 
-2. Generate practical decision tensions:
-- Identify the real conflicts after adding researched context.
-- These must be specific to the choices, not generic categories.
+Examples:
+- Two cars: research reliability, ownership cost, fuel/EV cost, safety, recalls, reviews, resale, warranty, driving use case.
+- Two cities/countries: research cost of living, housing, safety, weather, healthcare, taxes/residency if relevant, work/business environment, transport, lifestyle.
+- Two products/services: research pricing, features, reviews, support, limitations, alternatives.
+- Career/business options: research market demand, salary/income, risks, timing, barriers.
 
-3. Generate exactly the requested number of questions:
-- Questions must be based on the expanded background and researched practical factors.
-- Do NOT use generic stems like "which choice feels better".
-- Do NOT simply ask "strongly/slightly".
-- Each answer must be a specific first-person position, threshold, risk tolerance, cost acceptance, or condition.
-- The answer choices should sound different from each other.
-- The answer choices must not reveal scoring.
-- Each question must contain one answer scored -2, one -1, one 1, and one 2.
-- Randomize answer order.
-
+Rules:
+- Use the web search tool when practical facts could help.
+- Do not invent facts. If research is limited, explain that in researchLimitations.
+- practicalContext.expandedBackground must combine the user's background with researched practical facts.
+- Questions must be specific to the two choices, not generic self-reflection.
+- Each question must mention concrete practical consequences, thresholds, costs, risks, lifestyle effects, or facts from the expanded background.
+- Answer choices must be natural first-person positions. Do not say "strongly points" or "slightly points" in the visible answer text.
+- Every question must have exactly one option scored -2, one -1, one 1, and one 2.
+- Randomize the visible A-D ordering.
 Return only valid JSON matching the schema.
 `;
 
@@ -200,14 +201,13 @@ ${choiceOne}
 Choice 2:
 ${choiceTwo}
 
-User background:
+User background, including any added detail:
 ${background}
 
 Question count:
 ${questionCount}
 
-Important:
-The user complained the prior version still asked the same generic questions. Make this output specific, practical, researched, and grounded in the actual two choices.
+Make the output detailed, practical, researched, and specific to these choices.
 `;
 
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -225,6 +225,7 @@ The user complained the prior version still asked the same generic questions. Ma
         tools: [
           { type: "web_search", search_context_size: "medium" }
         ],
+        tool_choice: "required",
         text: {
           format: {
             type: "json_schema",
